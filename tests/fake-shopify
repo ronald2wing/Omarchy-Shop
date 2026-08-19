@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Test double for the `shopify` CLI. Dispatches on $1 and emits canned output,
+# never touching the network. Records each invocation's args (one line) to
+# $SHOPIFY_FAKE_LOG so tests can assert what the wrapper scripts forwarded.
+# `theme list` emits a 401 when SHOPIFY_FAKE_AUTH_FAIL=1.
+
+set -u
+
+log="${SHOPIFY_FAKE_LOG:-}"
+if [ -n "$log" ]; then printf '%s\n' "$*" >> "$log"; fi
+
+top="${1:-}"
+sub="${2:-}"
+
+case "$top" in
+  store)
+    case "$sub" in
+      execute)
+        # args: store execute -j -s <domain> -q <query>. Find the -q value.
+        q=""
+        prev=""
+        for a in "$@"; do
+          if [ "$prev" = "-q" ]; then q="$a"; break; fi
+          prev="$a"
+        done
+        case "$q" in
+          *"shopifyqlQuery"*)
+            printf '%s\n' '{"week":{"tableData":{"columns":[{"name":"total_sales"},{"name":"orders"}],"rows":[{"total_sales":"890.10","orders":95}]},"parseErrors":[]},"month":{"tableData":{"columns":[{"name":"total_sales"},{"name":"orders"}],"rows":[{"total_sales":"12345.67","orders":310}]},"parseErrors":[]},"weekSeries":{"tableData":{"columns":[{"name":"day"},{"name":"total_sales"}],"rows":[{"day":"2026-08-13","total_sales":"100.00"},{"day":"2026-08-14","total_sales":"0.00"},{"day":"2026-08-15","total_sales":"250.50"},{"day":"2026-08-16","total_sales":"0.00"},{"day":"2026-08-17","total_sales":"75.25"},{"day":"2026-08-18","total_sales":"300.00"},{"day":"2026-08-19","total_sales":"120.40"}]},"parseErrors":[]},"biweekSeries":{"tableData":{"columns":[{"name":"day"},{"name":"total_sales"}],"rows":[{"day":"2026-08-05","total_sales":"10.00"},{"day":"2026-08-06","total_sales":"20.00"},{"day":"2026-08-19","total_sales":"0.00"}]},"parseErrors":[]},"monthSeries":{"tableData":{"columns":[{"name":"day"},{"name":"total_sales"}],"rows":[{"day":"2026-07-20","total_sales":"5.00"},{"day":"2026-08-19","total_sales":"0.00"}]},"parseErrors":[]},"allTimeSeries":{"tableData":{"columns":[{"name":"month"},{"name":"total_sales"}],"rows":[{"month":"2026-05-01","total_sales":"0"},{"month":"2026-06-01","total_sales":"0"},{"month":"2026-07-01","total_sales":"1013.42"},{"month":"2026-08-01","total_sales":"2257.97"}]},"parseErrors":[]},"stats":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"bounce_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"1621","online_store_visitors":"1584","conversion_rate":"0.004935","bounce_rate":"0.8235","added_to_cart_rate":"0.07587","checkout_conversion_rate":"0.1860"}]},"parseErrors":[]},"statsWeek":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"bounce_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"3446","online_store_visitors":"3232","conversion_rate":"0.007545","bounce_rate":"0.8117","added_to_cart_rate":"0.09228","checkout_conversion_rate":"0.2031"}]},"parseErrors":[]},"statsBiweek":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"bounce_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"5000","online_store_visitors":"4700","conversion_rate":"0.006","bounce_rate":"0.8","added_to_cart_rate":"0.08","checkout_conversion_rate":"0.2"}]},"parseErrors":[]},"statsMonth":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"bounce_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"6000","online_store_visitors":"5600","conversion_rate":"0.0065","bounce_rate":"0.79","added_to_cart_rate":"0.07","checkout_conversion_rate":"0.19"}]},"parseErrors":[]},"statsAll":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"bounce_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"7806","online_store_visitors":"6974","conversion_rate":"0.009096","bounce_rate":"0.818","added_to_cart_rate":"0.08417","checkout_conversion_rate":"0.2457"}]},"parseErrors":[]},"yesterdayOrders":{"edges":[{"node":{"totalPriceSet":{"shopMoney":{"amount":"120.10","currencyCode":"USD"}}}}],"pageInfo":{"hasNextPage":false}},"todayOrders":{"edges":[{"node":{"totalPriceSet":{"shopMoney":{"amount":"35.81","currencyCode":"USD"}}}}],"pageInfo":{"hasNextPage":false}}}'
+            ;;
+          *"ianaTimezone"*)
+            printf '%s\n' '{"shop":{"ianaTimezone":"UTC","currencyCode":"USD"}}'
+            ;;
+          *) printf '%s\n' '{}' ;;
+        esac
+        ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  theme)
+    case "$sub" in
+      list)
+        if [ "${SHOPIFY_FAKE_AUTH_FAIL:-0}" = "1" ]; then
+          printf '%s\n' 'Theme CLI authentication failed for the store. (Code: 401) Not valid for authentication.' >&2
+          exit 1
+        fi
+        printf '%s\n' '[{"id":160258293983,"role":"live","name":"BEETLEJUICER"},{"id":424242,"role":"development","name":"DEV-THEME"}]'
+        ;;
+      push|pull)
+        # Reproduce the CLI's in-place progress rewrite (clear-line / cursor-up)
+        # so consumers are exercised against real ANSI noise.
+        printf 'Downloading files from remote theme [0%%] ...\n'
+        printf '\033[2K\033[1A\033[2K\033[GDownloading files from remote theme [93%%] ...\n'
+        printf '\033[2K\033[1A\033[2K\033[G'
+        if [ "$sub" = "pull" ]; then printf 'Pulled 9 files\n'; else printf 'Pushed 9 files\n'; fi
+        ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *)
+    exit 127
+    ;;
+esac
