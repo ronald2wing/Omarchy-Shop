@@ -1594,9 +1594,9 @@ Panel {
     readonly property int rangeBiweek: 3
     readonly property int rangeMonth: 4
     readonly property int rangeAll: 5
-    property int range: rangeWeek
+    property int range: rangeToday
     // Restore the user's last-selected range. Delegates are rebuilt on every
-    // state poll, so a per-card `range` would otherwise reset to 7d.
+    // state poll, so a per-card `range` would otherwise reset to Today.
     Component.onCompleted: {
       var r = root.rangeByDomain[store.domain]
       if (typeof r === "number") range = r
