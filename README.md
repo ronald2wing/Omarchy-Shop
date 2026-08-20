@@ -12,9 +12,13 @@ Shopify CLI (`shopify`).
 - **Live sales per store** — today's revenue + order count in the bar, with an
   ▲/▼ trend versus yesterday at the same time of day.
 - **Per-store dashboard** — a six-range selector (Today, Yesterday, 7d, 14d, 30d,
-  All) drives the Sales/Orders figures, a sales sparkline (hover a bar for that
-  period's total), and an eight-stat grid: Sales, Orders, AOV, CVR, Visitors,
-  Checkout CVR, ATC, and Bounce.
+  All) drives the Sales/Orders figures, a sparkline whose bar height is that
+  period's sales and whose bar color is its per-day Revenue/Session Index
+  (hover a bar for the day, amount, and RSI %), and an eight-stat grid: Sales,
+  Orders, AOV, CVR, Visitors, Checkout CVR, ATC, and RSI. **RSI (Revenue/Session
+  Index)** is today's revenue-per-session as a percentage of the all-time
+  baseline — 100% is average, above means more revenue per session than usual,
+  below less.
 - **New-order notifications** — when a store's today order count rises, a desktop
   notification fires and a short coin sound plays (both toggleable together).
 - **Theme sync** — push/pull with a per-store theme picker (defaults to the live

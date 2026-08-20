@@ -58,48 +58,53 @@ function _parseStats(section) {
     return _num(_metric(row, name))
   }
   return {
+    sessions: num("sessions"),
     visitors: num("online_store_visitors"),
     cvr: num("conversion_rate"),
-    bounce: num("bounce_rate"),
     atc: num("added_to_cart_rate"),
     checkoutCvr: num("checkout_conversion_rate")
   }
 }
 
 // Copy a parsed stats section's value fields into a clean {visitors, cvr,
-// bounce, atc, checkoutCvr} shape for the range-selected KPI objects.
+// atc, checkoutCvr, sessions} shape for the range-selected KPI objects.
 function _statsSummary(stats) {
   if (!stats) return null
-  return { visitors: stats.visitors, cvr: stats.cvr, bounce: stats.bounce, atc: stats.atc, checkoutCvr: stats.checkoutCvr }
+  return { visitors: stats.visitors, cvr: stats.cvr, atc: stats.atc, checkoutCvr: stats.checkoutCvr, sessions: stats.sessions }
 }
 
-function _parseSeries(section, bucketName, dropLast) {
+function _parseSeries(section, bucketName, dropLast, valueCol, valueKey) {
   if (!section) return null
   var td = section.tableData
   var rows = (td && Array.isArray(td.rows)) ? td.rows : []
   var out = []
+  var col = valueCol || "total_sales"
+  var key = valueKey || "sales"
   // Daily TIMESERIES queries (SINCE -Nd UNTIL -0d) append today's partial
-  // bucket as the LAST row; ShopifyQL's FROM sales analytics lags the current
-  // day, so that bucket is always $0. dropLast strips it so the sparkline
-  // shows complete days. All-time monthly buckets are partial-but-nonzero
-  // (the current month), so they keep the trailing bucket.
+  // bucket as the LAST row; dropLast strips it to stay index-aligned with the
+  // sales series: sales today is always $0 from analytics lag, while sessions
+  // today is partial but must be dropped too to keep the zip alignment.
+  // All-time monthly buckets are partial-but-nonzero (the current month), so
+  // they keep the trailing bucket.
   var nRows = (dropLast && rows.length > 0) ? rows.length - 1 : rows.length
   for (var i = 0; i < nRows; i++) {
     var row = rows[i]
     if (!row || typeof row !== "object") continue
-    out.push({ day: _metric(row, bucketName), sales: _num(_metric(row, "total_sales")) })
+    var item = { day: _metric(row, bucketName) }
+    item[key] = _num(_metric(row, col))
+    out.push(item)
   }
   return out
 }
 
-function _parseDaySeries(section) {
-  return _parseSeries(section, "day", true)
+function _parseDaySeries(section, valueCol, valueKey) {
+  return _parseSeries(section, "day", true, valueCol, valueKey)
 }
 
 // All-time buckets are calendar months, so the bucket column is `month` (not
 // `day`) and the current (partial) month is kept rather than dropped.
-function _parseMonthSeries(section) {
-  return _parseSeries(section, "month", false)
+function _parseMonthSeries(section, valueCol, valueKey) {
+  return _parseSeries(section, "month", false, valueCol, valueKey)
 }
 
 function parseSales(raw) {
@@ -111,7 +116,7 @@ function parseSales(raw) {
   var statsBiweek = _parseStats(data.statsBiweek)
   var statsMonth = _parseStats(data.statsMonth)
   var statsAll = _parseStats(data.statsAll)
-  var out = { today: _parseToday(data.todayOrders), week: _parseRange(data.week), month: _parseRange(data.month), biweek: _parseRange(data.biweek), allTime: _parseRange(data.allTime), yesterday: _parseRange(data.yesterdayFull), yesterdaySoFar: _parseToday(data.yesterdayOrders), weekSeries: _parseDaySeries(data.weekSeries), biweekSeries: _parseDaySeries(data.biweekSeries) || [], monthSeries: _parseDaySeries(data.monthSeries) || [], allTimeSeries: _parseMonthSeries(data.allTimeSeries) || [], statsToday: _statsSummary(stats), statsYesterday: _statsSummary(statsYesterday), statsWeek: _statsSummary(statsWeek), statsBiweek: _statsSummary(statsBiweek), statsMonth: _statsSummary(statsMonth), statsAll: _statsSummary(statsAll), currency: currency }
+  var out = { today: _parseToday(data.todayOrders), week: _parseRange(data.week), month: _parseRange(data.month), biweek: _parseRange(data.biweek), allTime: _parseRange(data.allTime), yesterday: _parseRange(data.yesterdayFull), yesterdaySoFar: _parseToday(data.yesterdayOrders), weekSeries: _parseDaySeries(data.weekSeries), biweekSeries: _parseDaySeries(data.biweekSeries) || [], monthSeries: _parseDaySeries(data.monthSeries) || [], allTimeSeries: _parseMonthSeries(data.allTimeSeries) || [], weekSessionsSeries: _parseDaySeries(data.weekSessionsSeries, "sessions", "sessions") || [], biweekSessionsSeries: _parseDaySeries(data.biweekSessionsSeries, "sessions", "sessions") || [], monthSessionsSeries: _parseDaySeries(data.monthSessionsSeries, "sessions", "sessions") || [], allTimeSessionsSeries: _parseMonthSeries(data.allTimeSessionsSeries, "sessions", "sessions") || [], statsToday: _statsSummary(stats), statsYesterday: _statsSummary(statsYesterday), statsWeek: _statsSummary(statsWeek), statsBiweek: _statsSummary(statsBiweek), statsMonth: _statsSummary(statsMonth), statsAll: _statsSummary(statsAll), currency: currency }
   return out
 }
 
@@ -150,6 +155,16 @@ function formatPercent(fraction) {
   var n = Number(fraction)
   if (fraction === null || fraction === undefined || fraction === "" || isNaN(n)) return "—"
   return (n * 100).toFixed(2) + "%"
+}
+
+// Revenue/Session Index: the current revenue-per-session as a percentage of
+// the all-time baseline (100 = at baseline, >100 above, <100 below). Returns
+// null when either side is uncomputable (zero sessions or zero baseline sales)
+// or when sales is negative; zero sales yields 0.
+function rsi(sales, sessions, baseSales, baseSessions) {
+  if (!(sessions > 0) || !(baseSessions > 0) || !(baseSales > 0)) return null
+  if (sales == null || !(sales >= 0)) return null
+  return (sales / sessions) / (baseSales / baseSessions) * 100
 }
 
 // Strip ANSI control sequences from CLI output. The theme CLI overwrites its
@@ -198,5 +213,5 @@ function formatEpoch(epochSeconds) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { parseSales: parseSales, formatMoney: formatMoney, formatCount: formatCount, formatPercent: formatPercent, symbolFor: symbolFor, stripAnsi: stripAnsi, naturalCompare: naturalCompare, formatEpoch: formatEpoch }
+  module.exports = { parseSales: parseSales, formatMoney: formatMoney, formatCount: formatCount, formatPercent: formatPercent, symbolFor: symbolFor, stripAnsi: stripAnsi, naturalCompare: naturalCompare, formatEpoch: formatEpoch, rsi: rsi }
 }

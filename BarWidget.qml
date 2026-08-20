@@ -370,6 +370,10 @@ Panel {
         biweekSeries: Array.isArray(s.biweekSeries) ? s.biweekSeries : [],
         monthSeries: Array.isArray(s.monthSeries) ? s.monthSeries : [],
         allTimeSeries: Array.isArray(s.allTimeSeries) ? s.allTimeSeries : [],
+        weekSessionsSeries: Array.isArray(s.weekSessionsSeries) ? s.weekSessionsSeries : [],
+        biweekSessionsSeries: Array.isArray(s.biweekSessionsSeries) ? s.biweekSessionsSeries : [],
+        monthSessionsSeries: Array.isArray(s.monthSessionsSeries) ? s.monthSessionsSeries : [],
+        allTimeSessionsSeries: Array.isArray(s.allTimeSessionsSeries) ? s.allTimeSessionsSeries : [],
         lastUpdated: Number(s.lastUpdated) || 0,
         lastError: s.lastError != null ? String(s.lastError) : "",
         lastSyncOutput: String(s.lastSyncOutput || ""),
@@ -1611,25 +1615,58 @@ Panel {
       var a = [store.weekSeries, store.biweekSeries, store.monthSeries, store.allTimeSeries]
       return (a[range - rangeWeek] || [])
     }
+    // Sessions series for the selected range, zipped index-for-index with
+    // `series` (same TIMESERIES window). Drives the per-bar RSI color.
+    readonly property var sessionsSeries: {
+      if (!store || range < rangeWeek) return []
+      var a = [store.weekSessionsSeries, store.biweekSessionsSeries, store.monthSessionsSeries, store.allTimeSessionsSeries]
+      return (a[range - rangeWeek] || [])
+    }
     readonly property string todayCaption: {
       var o = root.todayOrders(store)
       return o != null ? ("Today · " + M.formatCount(o) + " orders") : "Today"
     }
     // Bar currently under the pointer in the sparkline (-1 = none).
     property int hoveredSpark: -1
+    // Per-bar sales amount; bars scale against this.
+    function barSales(i) {
+      if (!store || i < 0 || i >= series.length) return null
+      return series[i] ? series[i].sales : null
+    }
+    // Per-bar RSI (Revenue/Session Index): the day's revenue-per-session as a
+    // percentage of the all-time baseline. Bars are colored by it (green at or
+    // above baseline, red below); null when no sessions data exists.
+    // RSI baseline = allTime.sales (unbounded) ÷ statsAll.sessions (trailing
+    // 365d) — see bin/sales.sh + AGENTS.md: the mismatched windows bias the
+    // baseline down for stores older than ~1 year.
+    function rsiFor(sales, sessions) {
+      return M.rsi(
+        sales, sessions,
+        store && store.allTime ? store.allTime.sales : null,
+        store && store.statsAll ? store.statsAll.sessions : null
+      )
+    }
+    function barRsi(i) {
+      if (!store || i < 0 || i >= series.length) return null
+      var s = series[i]
+      var ss = sessionsSeries[i]
+      return rsiFor(s ? s.sales : null, ss ? ss.sessions : null)
+    }
     function sparkTipText() {
       if (hoveredSpark < 0 || hoveredSpark >= series.length) return ""
       var d = series[hoveredSpark]
       if (!d) return ""
       var label = String(d.day || "")
       var day = range === rangeAll ? label.slice(0, 7) : label.slice(5)
-      return day + " · " + M.formatMoney(d.sales, store ? String(store.currency || "$") : "$")
+      var r = barRsi(hoveredSpark)
+      var rsiText = r == null ? "" : " · RSI " + Math.round(r) + "%"
+      return day + " · " + M.formatMoney(d.sales, store ? String(store.currency || "$") : "$") + rsiText
     }
-    // Highest single-day sales across the current range; bars scale against it.
+    // Highest bar value across the current range; bars scale against it.
     readonly property real sparkMax: {
       var m = 0
       for (var i = 0; i < series.length; i++) {
-        var v = Number(series[i] && series[i].sales)
+        var v = Number(barSales(i))
         if (!isNaN(v) && v > m) m = v
       }
       return m
@@ -1677,7 +1714,16 @@ Panel {
     function visitorsValue() { var s = rangeStats(store); return M.formatCount(s ? s.visitors : null) }
     function checkoutValue() { return root.pct(rangeStats(store), "checkoutCvr") }
     function atcValue() { return root.pct(rangeStats(store), "atc") }
-    function bounceValue() { return root.pct(rangeStats(store), "bounce") }
+    // RSI (Revenue/Session Index): the selected range's revenue-per-session as a
+    // percentage of the all-time baseline. Reads `range` like the other cells;
+    // for the "All" range this is exactly 100% by definition (it IS the baseline).
+    function rsiValue() {
+      if (!store) return "—"
+      var rs = rangeSales(store)
+      var st = rangeStats(store)
+      var r = rsiFor(rs ? rs.sales : null, st ? st.sessions : null)
+      return r == null ? "—" : Math.round(r) + "%"
+    }
 
     // Same-time-of-day comparison for a single KPI. Returns {up} when both
     // sides are present numbers and differ, else null (no glyph).
@@ -1709,22 +1755,35 @@ Panel {
     }
     function cvrTrend() { return statsTodayTrend("cvr") }
     function visitorsTrend() { return statsTodayTrend("visitors") }
-    function bounceTrend() { return statsTodayTrend("bounce") }
     function atcTrend() { return statsTodayTrend("atc") }
     function checkoutTrend() { return statsTodayTrend("checkoutCvr") }
+    function rsiTrend() {
+      if (range !== rangeToday || !store) return null
+      var today = rsiFor(
+        store.today ? store.today.sales : null,
+        store.statsToday ? store.statsToday.sessions : null
+      )
+      var yest = rsiFor(
+        store.yesterdaySoFar ? store.yesterdaySoFar.sales : null,
+        store.yesterdayStatsSoFar ? store.yesterdayStatsSoFar.sessions : null
+      )
+      return sameTimeTrend(today, yest)
+    }
     function statsTodayTrend(field) {
       if (range !== rangeToday || !store) return null
       return sameTimeTrend(store.statsToday ? store.statsToday[field] : null, store.yesterdayStatsSoFar ? store.yesterdayStatsSoFar[field] : null)
     }
 
-    function sparkBarHeight(day) {
-      var v = Number(day && day.sales)
+    function sparkBarHeight(i) {
+      var v = Number(barSales(i))
       if (isNaN(v) || v <= 0 || sparkMax <= 0) return 2
       return Math.max(2, (v / sparkMax) * Style.space(28))
     }
 
-    function sparkBarColor(day) {
-      var v = Number(day && day.sales)
+    function sparkBarColor(i) {
+      var r = barRsi(i)
+      if (r != null && !isNaN(Number(r))) return r >= 100 ? root.trendUpColor : root.trendDownColor
+      var v = Number(series[i] && series[i].sales)
       return (!isNaN(v) && v > 0) ? Color.accent : root.dim
     }
 
@@ -1876,10 +1935,11 @@ Panel {
             model: card.series
             delegate: Rectangle {
               required property var modelData
+              required property int index
               anchors.bottom: parent.bottom
               width: card.sparkBarWidth
-              height: card.sparkBarHeight(modelData)
-              color: card.sparkBarColor(modelData)
+              height: card.sparkBarHeight(index)
+              color: card.sparkBarColor(index)
               radius: Style.space(1)
             }
           }
@@ -1934,17 +1994,17 @@ Panel {
           spacing: Style.space(10)
           StatCell { width: card.statWidth; label: "Sales"; value: card.salesValue(); trend: card.salesTrend() }
           StatCell { width: card.statWidth; label: "Orders"; value: card.ordersValue(); trend: card.ordersTrend() }
+          StatCell { width: card.statWidth; label: "RSI"; value: card.rsiValue(); trend: card.rsiTrend() }
           StatCell { width: card.statWidth; label: "AOV"; value: card.aovValue(); trend: card.aovTrend() }
-          StatCell { width: card.statWidth; label: "CVR"; value: card.cvrValue(); trend: card.cvrTrend() }
         }
 
         Row {
           width: parent.width
           spacing: Style.space(10)
           StatCell { width: card.statWidth; label: "Visitors"; value: card.visitorsValue(); trend: card.visitorsTrend() }
+          StatCell { width: card.statWidth; label: "CVR"; value: card.cvrValue(); trend: card.cvrTrend() }
           StatCell { width: card.statWidth; label: "Checkout CVR"; value: card.checkoutValue(); trend: card.checkoutTrend() }
           StatCell { width: card.statWidth; label: "ATC"; value: card.atcValue(); trend: card.atcTrend() }
-          StatCell { width: card.statWidth; label: "Bounce"; value: card.bounceValue(); trend: card.bounceTrend() }
         }
       }
 

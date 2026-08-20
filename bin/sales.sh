@@ -43,7 +43,7 @@ yesterday_cutoff="$(TZ="$tz" date -d "yesterday $(TZ="$tz" date +'%H:%M:%S')" +'
 if [ "$mode" = "live" ]; then
   read -r -d '' query <<EOF || true
 query {
-  stats: shopifyqlQuery(query: "FROM sessions SHOW online_store_visitors, conversion_rate, bounce_rate, added_to_cart_rate, checkout_conversion_rate DURING today") { tableData { columns { name } rows } parseErrors }
+  stats: shopifyqlQuery(query: "FROM sessions SHOW sessions, online_store_visitors, conversion_rate, added_to_cart_rate, checkout_conversion_rate DURING today") { tableData { columns { name } rows } parseErrors }
   todayOrders: orders(first: 250, query: "created_at:>=$today") { edges { node { totalPriceSet { shopMoney { amount currencyCode } } } } pageInfo { hasNextPage endCursor } }
 }
 EOF
@@ -59,15 +59,24 @@ query {
   biweekSeries: shopifyqlQuery(query: "FROM sales SHOW total_sales TIMESERIES day SINCE -14d UNTIL -0d ORDER BY day ASC") { tableData { columns { name } rows } parseErrors }
   monthSeries: shopifyqlQuery(query: "FROM sales SHOW total_sales TIMESERIES day SINCE -30d UNTIL -0d ORDER BY day ASC") { tableData { columns { name } rows } parseErrors }
   allTimeSeries: shopifyqlQuery(query: "FROM sales SHOW total_sales TIMESERIES month") { tableData { columns { name } rows } parseErrors }
-  statsYesterday: shopifyqlQuery(query: "FROM sessions SHOW online_store_visitors, conversion_rate, bounce_rate, added_to_cart_rate, checkout_conversion_rate SINCE -1d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
-  statsWeek: shopifyqlQuery(query: "FROM sessions SHOW online_store_visitors, conversion_rate, bounce_rate, added_to_cart_rate, checkout_conversion_rate SINCE -7d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
-  statsBiweek: shopifyqlQuery(query: "FROM sessions SHOW online_store_visitors, conversion_rate, bounce_rate, added_to_cart_rate, checkout_conversion_rate SINCE -14d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
-  statsMonth: shopifyqlQuery(query: "FROM sessions SHOW online_store_visitors, conversion_rate, bounce_rate, added_to_cart_rate, checkout_conversion_rate SINCE -30d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
+  statsYesterday: shopifyqlQuery(query: "FROM sessions SHOW sessions, online_store_visitors, conversion_rate, added_to_cart_rate, checkout_conversion_rate SINCE -1d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
+  statsWeek: shopifyqlQuery(query: "FROM sessions SHOW sessions, online_store_visitors, conversion_rate, added_to_cart_rate, checkout_conversion_rate SINCE -7d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
+  statsBiweek: shopifyqlQuery(query: "FROM sessions SHOW sessions, online_store_visitors, conversion_rate, added_to_cart_rate, checkout_conversion_rate SINCE -14d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
+  statsMonth: shopifyqlQuery(query: "FROM sessions SHOW sessions, online_store_visitors, conversion_rate, added_to_cart_rate, checkout_conversion_rate SINCE -30d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
   # "All" is bounded to a trailing year: an unbounded FROM sessions query costs
   # the full 1000-point shopifyqlCost budget and can never run (verified against
   # a live store — the combined query is throttled outright), so the widest
   # affordable window stands in for all-time.
-  statsAll: shopifyqlQuery(query: "FROM sessions SHOW online_store_visitors, conversion_rate, bounce_rate, added_to_cart_rate, checkout_conversion_rate SINCE -365d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
+  statsAll: shopifyqlQuery(query: "FROM sessions SHOW sessions, online_store_visitors, conversion_rate, added_to_cart_rate, checkout_conversion_rate SINCE -365d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
+  # Per-range sessions TIMESERIES, zipped against the sales series of the same
+  # window so the widget can render a per-day Revenue-per-Session index. The
+  # daily ones reuse the same -Nd windows as the sales series above; the
+  # all-time one is bucketed by month and bounded to 365d (a no-filter sessions
+  # TIMESERIES spends the full 1000-point shopifyqlCost budget and throttles).
+  weekSessionsSeries: shopifyqlQuery(query: "FROM sessions SHOW sessions TIMESERIES day SINCE -7d UNTIL -0d ORDER BY day ASC") { tableData { columns { name } rows } parseErrors }
+  biweekSessionsSeries: shopifyqlQuery(query: "FROM sessions SHOW sessions TIMESERIES day SINCE -14d UNTIL -0d ORDER BY day ASC") { tableData { columns { name } rows } parseErrors }
+  monthSessionsSeries: shopifyqlQuery(query: "FROM sessions SHOW sessions TIMESERIES day SINCE -30d UNTIL -0d ORDER BY day ASC") { tableData { columns { name } rows } parseErrors }
+  allTimeSessionsSeries: shopifyqlQuery(query: "FROM sessions SHOW sessions TIMESERIES month SINCE -365d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
   yesterdayOrders: orders(first: 250, query: "created_at:>='$yesterday_start' AND created_at:<='$yesterday_cutoff'") { edges { node { totalPriceSet { shopMoney { amount currencyCode } } } } pageInfo { hasNextPage endCursor } }
 }
 EOF
@@ -108,6 +117,6 @@ if [ "$mode" = "live" ]; then
 else
   yest_edges="$(paginate_orders "$domain" "created_at:>='$yesterday_start' AND created_at:<='$yesterday_cutoff'" "$result" ".yesterdayOrders")"
   jq --arg c "$currency" --argjson yest_edges "$yest_edges" \
-    '{ currency: (if $c == "" then null else $c end), week: .week, month: .month, biweek: .biweek, allTime: .allTime, yesterdayFull: .yesterdayFull, weekSeries: .weekSeries, biweekSeries: .biweekSeries, monthSeries: .monthSeries, allTimeSeries: .allTimeSeries, statsYesterday: .statsYesterday, statsWeek: .statsWeek, statsBiweek: .statsBiweek, statsMonth: .statsMonth, statsAll: .statsAll, yesterdayOrders: { edges: $yest_edges } }' \
+    '{ currency: (if $c == "" then null else $c end), week: .week, month: .month, biweek: .biweek, allTime: .allTime, yesterdayFull: .yesterdayFull, weekSeries: .weekSeries, biweekSeries: .biweekSeries, monthSeries: .monthSeries, allTimeSeries: .allTimeSeries, weekSessionsSeries: .weekSessionsSeries, biweekSessionsSeries: .biweekSessionsSeries, monthSessionsSeries: .monthSessionsSeries, allTimeSessionsSeries: .allTimeSessionsSeries, statsYesterday: .statsYesterday, statsWeek: .statsWeek, statsBiweek: .statsBiweek, statsMonth: .statsMonth, statsAll: .statsAll, yesterdayOrders: { edges: $yest_edges } }' \
     <<<"$result"
 fi

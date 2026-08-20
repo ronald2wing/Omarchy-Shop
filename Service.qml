@@ -53,11 +53,12 @@ Item {
   property var devUrl: Object.create(null)
   // domain -> live `theme dev` Process (one per store, long-running)
   property var devProcesses: Object.create(null)
-  // domain -> array of same-time-of-day sessions snapshots {t, visitors, cvr,
-  // bounce, atc, checkoutCvr}, persisted to history.json. ShopifyQL FROM
-  // sessions is day-granular, so it cannot answer "yesterday at this same time"
-  // for the sessions stats — recording local snapshots is the only way to show
-  // that ▲/▼ trend (shown only once ~24h of snapshots have accumulated).
+  // domain -> array of same-time-of-day sessions snapshots {t, sessions,
+  // visitors, cvr, atc, checkoutCvr}, persisted to history.json.
+  // ShopifyQL FROM sessions is day-granular, so it cannot answer "yesterday at
+  // this same time" for the sessions stats — recording local snapshots is the
+  // only way to show that ▲/▼ trend (shown only once ~24h of snapshots have
+  // accumulated).
   property var history: Object.create(null)
 
   readonly property int refreshIntervalSec:
@@ -110,7 +111,7 @@ Item {
     var dm = String(domain || "")
     var r = results[dm]
     if (!r) {
-      r = { today: null, week: null, month: null, biweek: null, allTime: null, yesterday: null, yesterdaySoFar: null, statsToday: null, statsYesterday: null, yesterdayStatsSoFar: null, statsWeek: null, statsBiweek: null, statsMonth: null, statsAll: null, weekSeries: [], biweekSeries: [], monthSeries: [], allTimeSeries: [], lastError: null,
+      r = { today: null, week: null, month: null, biweek: null, allTime: null, yesterday: null, yesterdaySoFar: null, statsToday: null, statsYesterday: null, yesterdayStatsSoFar: null, statsWeek: null, statsBiweek: null, statsMonth: null, statsAll: null, weekSeries: [], biweekSeries: [], monthSeries: [], allTimeSeries: [], weekSessionsSeries: [], biweekSessionsSeries: [], monthSessionsSeries: [], allTimeSessionsSeries: [], lastError: null,
             lastUpdated: 0, lastSyncOutput: "", lastSyncError: "" }
       results[dm] = r
     }
@@ -154,6 +155,10 @@ Item {
         biweekSeries: r && r.biweekSeries ? r.biweekSeries : [],
         monthSeries: r && r.monthSeries ? r.monthSeries : [],
         allTimeSeries: r && r.allTimeSeries ? r.allTimeSeries : [],
+        weekSessionsSeries: r && r.weekSessionsSeries ? r.weekSessionsSeries : [],
+        biweekSessionsSeries: r && r.biweekSessionsSeries ? r.biweekSessionsSeries : [],
+        monthSessionsSeries: r && r.monthSessionsSeries ? r.monthSessionsSeries : [],
+        allTimeSessionsSeries: r && r.allTimeSessionsSeries ? r.allTimeSessionsSeries : [],
         lastUpdated: r && r.lastUpdated ? r.lastUpdated : 0,
         lastError: r && r.lastError != null ? r.lastError : null,
         lastSyncOutput: r && r.lastSyncOutput ? r.lastSyncOutput : "",
@@ -283,7 +288,7 @@ Item {
       if (last && typeof last.t === "number" && now - last.t < 300000) return
     }
     if (!Array.isArray(arr)) { arr = []; history[dm] = arr }
-    arr.push({ t: now, visitors: statsToday.visitors, cvr: statsToday.cvr, bounce: statsToday.bounce, atc: statsToday.atc, checkoutCvr: statsToday.checkoutCvr })
+    arr.push({ t: now, sessions: statsToday.sessions, visitors: statsToday.visitors, cvr: statsToday.cvr, atc: statsToday.atc, checkoutCvr: statsToday.checkoutCvr })
     var cutoff = now - 172800000
     history[dm] = arr.filter(function(e) { return e && e.t > cutoff })
     historyFile.setText(JSON.stringify(root.history, null, 2) + "\n")
@@ -305,7 +310,7 @@ Item {
       }
     }
     if (best && bestDiff <= 900000) {
-      return { visitors: best.visitors, cvr: best.cvr, bounce: best.bounce, atc: best.atc, checkoutCvr: best.checkoutCvr }
+      return { sessions: best.sessions, visitors: best.visitors, cvr: best.cvr, atc: best.atc, checkoutCvr: best.checkoutCvr }
     }
     // No same-time snapshot → no trend. Falling back to full-yesterday would
     // compare a partial day against a full day (misleading ▼), so return null.
@@ -380,7 +385,7 @@ Item {
             if (parsed[f] != null) r[f] = pickRange(parsed[f])
           }
           if (parsed.yesterdaySoFar != null) r.yesterdaySoFar = pickRange(parsed.yesterdaySoFar)
-          var passthroughFields = ["statsYesterday", "statsWeek", "statsBiweek", "statsMonth", "statsAll", "weekSeries", "biweekSeries", "monthSeries", "allTimeSeries"]
+          var passthroughFields = ["statsYesterday", "statsWeek", "statsBiweek", "statsMonth", "statsAll", "weekSeries", "biweekSeries", "monthSeries", "allTimeSeries", "weekSessionsSeries", "biweekSessionsSeries", "monthSessionsSeries", "allTimeSessionsSeries"]
           for (var j = 0; j < passthroughFields.length; j++) {
             var g = passthroughFields[j]
             if (parsed[g] != null) r[g] = parsed[g]

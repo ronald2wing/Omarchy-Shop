@@ -26,20 +26,28 @@ printf '%s' "$live_out" | jq -e '((has("week") or has("month") or has("biweek") 
   || fail "live output must not include historical fields"
 printf '%s' "$live_out" | jq -e '.stats.tableData.rows | length >= 1' >/dev/null \
   || fail "live stats missing rows"
+printf '%s' "$live_out" | jq -e '.stats.tableData.rows[0].sessions != null' >/dev/null \
+  || fail "live stats missing sessions"
 printf '%s' "$live_out" | jq -e '.todayOrders | has("edges")' >/dev/null \
   || fail "live todayOrders missing edges"
 
 # historical emits ONLY completed-period fields; no todayOrders/stats.
-printf '%s' "$hist_out" | jq -e 'has("currency") and has("week") and has("month") and has("biweek") and has("allTime") and has("yesterdayFull") and has("yesterdayOrders") and has("weekSeries") and has("biweekSeries") and has("monthSeries") and has("allTimeSeries") and has("statsYesterday") and has("statsWeek") and has("statsBiweek") and has("statsMonth") and has("statsAll")' >/dev/null \
+printf '%s' "$hist_out" | jq -e 'has("currency") and has("week") and has("month") and has("biweek") and has("allTime") and has("yesterdayFull") and has("yesterdayOrders") and has("weekSeries") and has("biweekSeries") and has("monthSeries") and has("allTimeSeries") and has("weekSessionsSeries") and has("biweekSessionsSeries") and has("monthSessionsSeries") and has("allTimeSessionsSeries") and has("statsYesterday") and has("statsWeek") and has("statsBiweek") and has("statsMonth") and has("statsAll")' >/dev/null \
   || fail "historical output missing expected top-level keys"
 printf '%s' "$hist_out" | jq -e '((has("todayOrders") or has("stats")) | not)' >/dev/null \
   || fail "historical output must not include today's fields"
 printf '%s' "$hist_out" | jq -e '(.statsWeek.tableData.rows | length >= 1) and (.statsAll.tableData.rows | length >= 1)' >/dev/null \
   || fail "historical range stats missing rows"
+printf '%s' "$hist_out" | jq -e '(.statsWeek.tableData.rows[0].sessions != null) and (.statsAll.tableData.rows[0].sessions != null)' >/dev/null \
+  || fail "historical range stats missing sessions"
 printf '%s' "$hist_out" | jq -e '.weekSeries.tableData.rows | length == 7' >/dev/null \
   || fail "historical weekSeries missing 7 rows"
 printf '%s' "$hist_out" | jq -e '.allTimeSeries.tableData.columns[0].name == "month"' >/dev/null \
   || fail "historical allTimeSeries not bucketed by month"
+printf '%s' "$hist_out" | jq -e '.weekSessionsSeries.tableData.columns[0].name == "day"' >/dev/null \
+  || fail "historical weekSessionsSeries not bucketed by day"
+printf '%s' "$hist_out" | jq -e '.allTimeSessionsSeries.tableData.columns[0].name == "month"' >/dev/null \
+  || fail "historical allTimeSessionsSeries not bucketed by month"
 printf '%s' "$hist_out" | jq -e '.yesterdayOrders | has("edges")' >/dev/null \
   || fail "historical yesterdayOrders missing edges"
 

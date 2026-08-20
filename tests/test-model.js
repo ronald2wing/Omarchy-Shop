@@ -21,36 +21,36 @@ var raw = {
   },
   stats: {
     tableData: {
-      columns: [{ name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "bounce_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
-      rows: [{ online_store_visitors: "1584", conversion_rate: "0.004935", bounce_rate: "0.8235", added_to_cart_rate: "0.07587", checkout_conversion_rate: "0.1860" }]
+      columns: [{ name: "sessions" }, { name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
+      rows: [{ sessions: "1621", online_store_visitors: "1584", conversion_rate: "0.004935", added_to_cart_rate: "0.07587", checkout_conversion_rate: "0.1860" }]
     },
     parseErrors: []
   },
   statsWeek: {
     tableData: {
-      columns: [{ name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "bounce_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
-      rows: [{ online_store_visitors: "3232", conversion_rate: "0.007545", bounce_rate: "0.8117", added_to_cart_rate: "0.09228", checkout_conversion_rate: "0.2031" }]
+      columns: [{ name: "sessions" }, { name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
+      rows: [{ sessions: "3446", online_store_visitors: "3232", conversion_rate: "0.007545", added_to_cart_rate: "0.09228", checkout_conversion_rate: "0.2031" }]
     },
     parseErrors: []
   },
   statsBiweek: {
     tableData: {
-      columns: [{ name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "bounce_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
-      rows: [{ online_store_visitors: "4700", conversion_rate: "0.006", bounce_rate: "0.8", added_to_cart_rate: "0.08", checkout_conversion_rate: "0.2" }]
+      columns: [{ name: "sessions" }, { name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
+      rows: [{ sessions: "5000", online_store_visitors: "4700", conversion_rate: "0.006", added_to_cart_rate: "0.08", checkout_conversion_rate: "0.2" }]
     },
     parseErrors: []
   },
   statsMonth: {
     tableData: {
-      columns: [{ name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "bounce_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
-      rows: [{ online_store_visitors: "5600", conversion_rate: "0.0065", bounce_rate: "0.79", added_to_cart_rate: "0.07", checkout_conversion_rate: "0.19" }]
+      columns: [{ name: "sessions" }, { name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
+      rows: [{ sessions: "6000", online_store_visitors: "5600", conversion_rate: "0.0065", added_to_cart_rate: "0.07", checkout_conversion_rate: "0.19" }]
     },
     parseErrors: []
   },
   statsAll: {
     tableData: {
-      columns: [{ name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "bounce_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
-      rows: [{ online_store_visitors: "6974", conversion_rate: "0.009096", bounce_rate: "0.818", added_to_cart_rate: "0.08417", checkout_conversion_rate: "0.2457" }]
+      columns: [{ name: "sessions" }, { name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }],
+      rows: [{ sessions: "7806", online_store_visitors: "6974", conversion_rate: "0.009096", added_to_cart_rate: "0.08417", checkout_conversion_rate: "0.2457" }]
     },
     parseErrors: []
   },
@@ -101,6 +101,54 @@ var raw = {
       ]
     },
     parseErrors: []
+  },
+  weekSessionsSeries: {
+    tableData: {
+      columns: [{ name: "day" }, { name: "sessions" }],
+      rows: [
+        { day: "2026-08-13", sessions: "100" },
+        { day: "2026-08-14", sessions: "120" },
+        { day: "2026-08-15", sessions: "80" },
+        { day: "2026-08-16", sessions: "95" },
+        { day: "2026-08-17", sessions: "130" },
+        { day: "2026-08-18", sessions: "200" },
+        { day: "2026-08-19", sessions: "150" }
+      ]
+    },
+    parseErrors: []
+  },
+  biweekSessionsSeries: {
+    tableData: {
+      columns: [{ name: "day" }, { name: "sessions" }],
+      rows: [
+        { day: "2026-08-05", sessions: "50" },
+        { day: "2026-08-06", sessions: "70" },
+        { day: "2026-08-19", sessions: "0" }
+      ]
+    },
+    parseErrors: []
+  },
+  monthSessionsSeries: {
+    tableData: {
+      columns: [{ name: "day" }, { name: "sessions" }],
+      rows: [
+        { day: "2026-07-20", sessions: "40" },
+        { day: "2026-08-19", sessions: "0" }
+      ]
+    },
+    parseErrors: []
+  },
+  allTimeSessionsSeries: {
+    tableData: {
+      columns: [{ name: "month" }, { name: "sessions" }],
+      rows: [
+        { month: "2026-05-01", sessions: "0" },
+        { month: "2026-06-01", sessions: "0" },
+        { month: "2026-07-01", sessions: "3000" },
+        { month: "2026-08-01", sessions: "4000" }
+      ]
+    },
+    parseErrors: []
   }
 }
 
@@ -123,18 +171,19 @@ assert.strictEqual(M.parseSales(raw).currency, "USD")
 
 // today's stats parsed into the statsToday object
 assert.strictEqual(M.parseSales(raw).statsToday.visitors, 1584)
+assert.strictEqual(M.parseSales(raw).statsToday.sessions, 1621)
 assert.strictEqual(M.parseSales(raw).statsToday.cvr, 0.004935)
-assert.strictEqual(M.parseSales(raw).statsToday.bounce, 0.8235)
 assert.strictEqual(M.parseSales(raw).statsToday.atc, 0.07587)
 assert.strictEqual(M.parseSales(raw).statsToday.checkoutCvr, 0.1860)
 
 // range-selected stats objects parsed from statsWeek/statsBiweek/statsMonth/statsAll
 assert.strictEqual(M.parseSales(raw).statsWeek.visitors, 3232)
+assert.strictEqual(M.parseSales(raw).statsWeek.sessions, 3446)
 assert.strictEqual(M.parseSales(raw).statsWeek.cvr, 0.007545)
 assert.strictEqual(M.parseSales(raw).statsBiweek.visitors, 4700)
-assert.strictEqual(M.parseSales(raw).statsBiweek.bounce, 0.8)
 assert.strictEqual(M.parseSales(raw).statsMonth.atc, 0.07)
 assert.strictEqual(M.parseSales(raw).statsAll.checkoutCvr, 0.2457)
+assert.strictEqual(M.parseSales(raw).statsAll.sessions, 7806)
 
 // weekSeries parsed from weekSeries.tableData.rows (day + per-day total_sales);
 // the LAST row (today's partial bucket, always $0 due to analytics lag) is dropped.
@@ -168,6 +217,29 @@ assert.strictEqual(ats[2].sales, 1013.42)
 assert.strictEqual(ats[3].day, "2026-08-01")
 assert.strictEqual(ats[3].sales, 2257.97)
 
+// sessions series: daily ones reuse the daily parser with `sessions` as the
+// value column (trailing partial bucket dropped); the monthly one keeps the
+// current month.
+var wss = M.parseSales(raw).weekSessionsSeries
+assert.strictEqual(wss.length, 6)
+assert.strictEqual(wss[0].day, "2026-08-13")
+assert.strictEqual(wss[0].sessions, 100)
+assert.strictEqual(wss[5].sessions, 200)
+
+var bss = M.parseSales(raw).biweekSessionsSeries
+assert.strictEqual(bss.length, 2)
+assert.strictEqual(bss[0].sessions, 50)
+assert.strictEqual(bss[1].sessions, 70)
+
+var mss = M.parseSales(raw).monthSessionsSeries
+assert.strictEqual(mss.length, 1)
+assert.strictEqual(mss[0].sessions, 40)
+
+var atss = M.parseSales(raw).allTimeSessionsSeries
+assert.strictEqual(atss.length, 4)
+assert.strictEqual(atss[0].sessions, 0)
+assert.strictEqual(atss[3].sessions, 4000)
+
 // statsToday/weekSeries = null when absent
 assert.strictEqual(M.parseSales({ currency: "USD" }).statsToday, null)
 assert.strictEqual(M.parseSales({ currency: "USD" }).weekSeries, null)
@@ -182,6 +254,12 @@ assert.strictEqual(M.parseSales({ currency: "USD" }).statsAll, null)
 assert.deepStrictEqual(M.parseSales({ currency: "USD" }).biweekSeries, [])
 assert.deepStrictEqual(M.parseSales({ currency: "USD" }).monthSeries, [])
 assert.deepStrictEqual(M.parseSales({ currency: "USD" }).allTimeSeries, [])
+
+// sessions series = [] when absent (never null)
+assert.deepStrictEqual(M.parseSales({ currency: "USD" }).weekSessionsSeries, [])
+assert.deepStrictEqual(M.parseSales({ currency: "USD" }).biweekSessionsSeries, [])
+assert.deepStrictEqual(M.parseSales({ currency: "USD" }).monthSessionsSeries, [])
+assert.deepStrictEqual(M.parseSales({ currency: "USD" }).allTimeSessionsSeries, [])
 
 // today = null when todayOrders absent (or edges not an array)
 assert.strictEqual(M.parseSales({ currency: "USD", week: raw.week, month: raw.month }).today, null)
@@ -235,7 +313,7 @@ var histOnly = M.parseSales({
   biweekSeries: raw.biweekSeries,
   monthSeries: raw.monthSeries,
   allTimeSeries: raw.allTimeSeries,
-  statsYesterday: { tableData: { columns: [{ name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "bounce_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }], rows: [{ online_store_visitors: "1234", conversion_rate: "0.005", bounce_rate: "0.8", added_to_cart_rate: "0.08", checkout_conversion_rate: "0.2" }] }, parseErrors: [] },
+  statsYesterday: { tableData: { columns: [{ name: "online_store_visitors" }, { name: "conversion_rate" }, { name: "added_to_cart_rate" }, { name: "checkout_conversion_rate" }], rows: [{ online_store_visitors: "1234", conversion_rate: "0.005", added_to_cart_rate: "0.08", checkout_conversion_rate: "0.2" }] }, parseErrors: [] },
   statsWeek: raw.statsWeek,
   statsBiweek: raw.statsBiweek,
   statsMonth: raw.statsMonth,
@@ -265,6 +343,17 @@ assert.strictEqual(M.formatPercent(undefined), "—")
 assert.strictEqual(M.formatPercent("abc"), "—")
 assert.strictEqual(M.symbolFor("EUR"), "€")
 assert.strictEqual(M.symbolFor("$"), "$")
+
+// rsi(): Revenue/Session Index = (sales/sessions) / (baseSales/baseSessions) * 100
+assert.strictEqual(M.rsi(100, 10, 100, 10), 100)   // baseline-equal → 100
+assert.strictEqual(M.rsi(200, 10, 100, 10), 200)   // above → >100
+assert.strictEqual(M.rsi(50, 10, 100, 10), 50)     // below → <100
+assert.strictEqual(M.rsi(0, 10, 100, 10), 0)       // zero sales → 0
+assert.strictEqual(M.rsi(null, 10, 100, 10), null)      // null sales → null
+assert.strictEqual(M.rsi(undefined, 10, 100, 10), null) // undefined sales → null
+assert.strictEqual(M.rsi(100, 0, 100, 10), null)   // zero sessions → null
+assert.strictEqual(M.rsi(100, 10, 0, 10), null)    // zero baseline sales → null
+assert.strictEqual(M.rsi(100, 10, 100, 0), null)   // zero baseline sessions → null
 
 // stripAnsi: exact output captured from a real `shopify theme pull`
 var dirty = "Downloading files from remote theme [0%] ...\n\u001b[2K\u001b[1A\u001b[2K\u001b[GDownloading files from remote theme [93%] ...\n\u001b[2K\u001b[1A\u001b[2K\u001b[G"
