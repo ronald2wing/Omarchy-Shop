@@ -70,7 +70,7 @@ Item {
   // Set when a sales poll fails because the `shopify` binary is absent, and
   // cleared on the next successful poll — drives the panel's warning banner.
   property bool cliMissing: false
-  // True while `npm install -g @shopify/cli@latest` is in flight; the banner
+  // True while `npm install -g @shopify/cli@4.7.0` is in flight; the banner
   // shows "Installing…" and hides the Install button.
   property bool cliInstalling: false
   // stderr from a failed CLI install, surfaced as a second line in the banner.
@@ -411,7 +411,7 @@ Item {
     cliInstalling = true
     cliInstallError = ""
     writeState()
-    cliInstallProcess.command = ["npm", "install", "-g", "@shopify/cli@latest"]
+    cliInstallProcess.command = ["npm", "install", "-g", "@shopify/cli@4.7.0"]
     cliInstallProcess.running = true
     return "ok"
   }
