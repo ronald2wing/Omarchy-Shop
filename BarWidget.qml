@@ -44,6 +44,10 @@ Panel {
   // Repeater delegates read plain fields; null sales survive as null so a
   // store that has not polled yet renders "—"/"…" instead of a false $0.
   property var stores: []
+  // Selected sparkline range per store, keyed by domain. Lives on the root
+  // (not the StoreCard delegate) so it survives the Repeater rebuild that every
+  // state.json poll triggers.
+  property var rangeByDomain: Object.create(null)
 
   // Global settings read from the service's state file (state.json), mirrored
   // here so the config-mode Toggle and warning banner stay file-driven.
@@ -1591,6 +1595,12 @@ Panel {
     readonly property int rangeMonth: 4
     readonly property int rangeAll: 5
     property int range: rangeWeek
+    // Restore the user's last-selected range. Delegates are rebuilt on every
+    // state poll, so a per-card `range` would otherwise reset to 7d.
+    Component.onCompleted: {
+      var r = root.rangeByDomain[store.domain]
+      if (typeof r === "number") range = r
+    }
     readonly property var rangeLabels: ["Today", "Yesterday", "7d", "14d", "30d", "All"]
     // Sparkline series for the selected range. Single-day ranges (Today/
     // Yesterday) have no timeseries, so they yield an empty array (the
@@ -1843,7 +1853,10 @@ Panel {
             fontSize: Style.font.caption
             horizontalPadding: Style.space(6)
             verticalPadding: Style.space(3)
-            onClicked: card.range = index
+            onClicked: {
+              card.range = index
+              if (card.store) root.rangeByDomain[card.store.domain] = index
+            }
           }
         }
       }
