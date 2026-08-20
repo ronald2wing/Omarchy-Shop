@@ -31,7 +31,7 @@ Shopify CLI (`shopify`).
   them.
 - **Automatic CLI setup** — if the Shopify CLI is missing, the panel shows a
   warning with a one-click **Install** button (installs via
-  `npm install -g @shopify/cli@latest`).
+  `npm install -g @shopify/cli@4.7.0`).
 
 ## Requirements
 
