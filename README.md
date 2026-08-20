@@ -87,6 +87,8 @@ Config lives at `~/.config/shop/config.json`:
 - Currency is auto-detected from Shopify — there is no `currency` field.
 
 Runtime state is written by the service to `~/.local/state/shop/state.json`.
+`~/.local/state/shop/history.json` holds a rolling 48h of 5-minute same-time
+stats snapshots used for the per-stat ▲/▼ trends.
 Theme snapshots are stored under `~/.local/state/shop/backups/<domain>/`.
 
 ## Keyboard shortcuts (with the popup open)

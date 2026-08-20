@@ -43,7 +43,7 @@ Config `~/.config/shop/config.json`:
 
 - `domain` is the `*.myshopify.com` subdomain (the CLI's `--store`). `themeDir` optional (theme ops disabled without it). `theme` = `"live"` or a numeric theme id. `showOnBar` = bool (bar visibility). No `currency` field — it's auto-detected from Shopify.
 
-State `~/.local/state/shop/state.json` — top-level `notifyNewOrders`, `cliMissing`, `cliInstalling`, `cliInstallError`; per store: `name, domain, currency, today, week, biweek, month, allTime, yesterdaySoFar, yesterday, statsToday, statsYesterday, statsWeek, statsBiweek, statsMonth, statsAll, weekSeries, biweekSeries, monthSeries, allTimeSeries, lastUpdated, lastError, lastSyncOutput, lastSyncError, syncing, themeSyncing, themeAction, authed, devRunning, devUrl, showOnBar`.
+State `~/.local/state/shop/state.json` — top-level `notifyNewOrders`, `cliMissing`, `cliInstalling`, `cliInstallError`; per store: `name, domain, currency, today, week, biweek, month, allTime, yesterdaySoFar, yesterday, yesterdayStatsSoFar, statsToday, statsYesterday, statsWeek, statsBiweek, statsMonth, statsAll, weekSeries, biweekSeries, monthSeries, allTimeSeries, lastUpdated, lastError, lastSyncOutput, lastSyncError, syncing, themeSyncing, themeAction, authed, devRunning, devUrl, showOnBar`. `yesterdayStatsSoFar` is a per-store `{visitors,cvr,bounce,atc,checkoutCvr}` object = the ~24h-ago same-time snapshot (null when no snapshot is within ±15 min, so the sessions-stats trend stays hidden until 24h of snapshots accumulate).
 
 ## Gotchas (hard-earned — do not re-learn these)
 

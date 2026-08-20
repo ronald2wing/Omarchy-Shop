@@ -53,6 +53,12 @@ Item {
   property var devUrl: Object.create(null)
   // domain -> live `theme dev` Process (one per store, long-running)
   property var devProcesses: Object.create(null)
+  // domain -> array of same-time-of-day sessions snapshots {t, visitors, cvr,
+  // bounce, atc, checkoutCvr}, persisted to history.json. ShopifyQL FROM
+  // sessions is day-granular, so it cannot answer "yesterday at this same time"
+  // for the sessions stats — recording local snapshots is the only way to show
+  // that ▲/▼ trend (shown only once ~24h of snapshots have accumulated).
+  property var history: Object.create(null)
 
   readonly property int refreshIntervalSec:
     Math.max(1, parseInt(String(config.refreshIntervalSec), 10) || 60)
@@ -104,7 +110,7 @@ Item {
     var dm = String(domain || "")
     var r = results[dm]
     if (!r) {
-      r = { today: null, week: null, month: null, biweek: null, allTime: null, yesterday: null, yesterdaySoFar: null, statsToday: null, statsYesterday: null, statsWeek: null, statsBiweek: null, statsMonth: null, statsAll: null, weekSeries: [], biweekSeries: [], monthSeries: [], allTimeSeries: [], lastError: null,
+      r = { today: null, week: null, month: null, biweek: null, allTime: null, yesterday: null, yesterdaySoFar: null, statsToday: null, statsYesterday: null, yesterdayStatsSoFar: null, statsWeek: null, statsBiweek: null, statsMonth: null, statsAll: null, weekSeries: [], biweekSeries: [], monthSeries: [], allTimeSeries: [], lastError: null,
             lastUpdated: 0, lastSyncOutput: "", lastSyncError: "" }
       results[dm] = r
     }
@@ -139,6 +145,7 @@ Item {
         yesterdaySoFar: r && r.yesterdaySoFar ? r.yesterdaySoFar : null,
         statsToday: r && r.statsToday ? r.statsToday : null,
         statsYesterday: r && r.statsYesterday ? r.statsYesterday : null,
+        yesterdayStatsSoFar: r && r.yesterdayStatsSoFar ? r.yesterdayStatsSoFar : null,
         statsWeek: r && r.statsWeek ? r.statsWeek : null,
         statsBiweek: r && r.statsBiweek ? r.statsBiweek : null,
         statsMonth: r && r.statsMonth ? r.statsMonth : null,
@@ -263,6 +270,48 @@ Item {
     writeState()
   }
 
+  // Append a same-time-of-day snapshot of the store's sessions stats, throttled
+  // to once per 5 minutes and pruned to a rolling 48h. Called from the live
+  // branch after statsToday lands; `t` changes every write so setText never
+  // skips (a skip would drop the newest snapshot when the rest is unchanged).
+  function recordSnapshot(dm, statsToday) {
+    if (!statsToday) return
+    var now = Date.now()
+    var arr = history[dm]
+    if (Array.isArray(arr) && arr.length) {
+      var last = arr[arr.length - 1]
+      if (last && typeof last.t === "number" && now - last.t < 300000) return
+    }
+    if (!Array.isArray(arr)) { arr = []; history[dm] = arr }
+    arr.push({ t: now, visitors: statsToday.visitors, cvr: statsToday.cvr, bounce: statsToday.bounce, atc: statsToday.atc, checkoutCvr: statsToday.checkoutCvr })
+    var cutoff = now - 172800000
+    history[dm] = arr.filter(function(e) { return e && e.t > cutoff })
+    historyFile.setText(JSON.stringify(root.history, null, 2) + "\n")
+  }
+
+  // Same-time-of-day baseline for the sessions stats: the nearest snapshot to
+  // ~24h ago if it is within ±15 min; null when no snapshot matches.
+  function yesterdayStatsSoFar(dm) {
+    var arr = history[dm]
+    var target = Date.now() - 86400000
+    var best = null
+    var bestDiff = Infinity
+    if (Array.isArray(arr)) {
+      for (var i = 0; i < arr.length; i++) {
+        var e = arr[i]
+        if (!e || typeof e.t !== "number") continue
+        var d = Math.abs(e.t - target)
+        if (d < bestDiff) { bestDiff = d; best = e }
+      }
+    }
+    if (best && bestDiff <= 900000) {
+      return { visitors: best.visitors, cvr: best.cvr, bounce: best.bounce, atc: best.atc, checkoutCvr: best.checkoutCvr }
+    }
+    // No same-time snapshot → no trend. Falling back to full-yesterday would
+    // compare a partial day against a full day (misleading ▼), so return null.
+    return null
+  }
+
   function handleSales(domain, mode, exitCode, stdoutText, stderrText) {
     var dm = String(domain || "")
     var md = String(mode || "live")
@@ -300,6 +349,8 @@ Item {
           // so a failed/empty poll reflects "no data yet" rather than stale.
           r.today = pickRange(parsed.today)
           if (parsed.statsToday != null) r.statsToday = parsed.statsToday
+          recordSnapshot(dm, parsed.statsToday)
+          r.yesterdayStatsSoFar = root.yesterdayStatsSoFar(dm)
 
           // New-order notification: only once a store has a baseline, and only
           // when today's order count has actually grown between polls.
@@ -731,6 +782,19 @@ Item {
     path: root.stateDir + "/discovered.json"
     atomicWrites: true
     printErrors: false
+  }
+
+  FileView {
+    id: historyFile
+    path: root.stateDir + "/history.json"
+    atomicWrites: true
+    printErrors: false
+    onLoaded: {
+      var parsed = null
+      try { parsed = JSON.parse(String(text())) } catch (e) { parsed = null }
+      root.history = (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : {}
+    }
+    onLoadFailed: root.history = {}
   }
 
   // ------------------------------------------------------------- processes

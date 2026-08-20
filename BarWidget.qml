@@ -357,6 +357,7 @@ Panel {
         allTime: s.allTime || null,
         statsToday: s.statsToday || null,
         statsYesterday: s.statsYesterday || null,
+        yesterdayStatsSoFar: s.yesterdayStatsSoFar || null,
         statsWeek: s.statsWeek || null,
         statsBiweek: s.statsBiweek || null,
         statsMonth: s.statsMonth || null,
@@ -1514,10 +1515,13 @@ Panel {
     }
   }
 
-  // A dim label over a bold value — the store card's KPI stat cell.
+  // A dim label over a bold value — the store card's KPI stat cell. `trend`
+  // carries an optional {up} from StoreCard's same-time-of-day comparison;
+  // when set, a ▲/▼ glyph renders next to the value.
   component StatCell: Column {
     property string label: ""
     property string value: ""
+    property var trend: null
     spacing: Style.space(1)
     Text {
       width: parent.width
@@ -1527,14 +1531,28 @@ Panel {
       font.pixelSize: Style.font.caption
       elide: Text.ElideRight
     }
-    Text {
+    Row {
       width: parent.width
-      text: value
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
-      font.bold: true
-      elide: Text.ElideRight
+      spacing: Style.space(3)
+      Text {
+        width: Math.max(0, parent.width - (trendText.visible ? trendText.implicitWidth + parent.spacing : 0))
+        text: value
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        font.bold: true
+        elide: Text.ElideRight
+      }
+      Text {
+        id: trendText
+        anchors.verticalCenter: parent.verticalCenter
+        visible: trend !== null
+        text: trend ? (trend.up ? "▲" : "▼") : ""
+        color: trend && trend.up ? root.trendUpColor : root.trendDownColor
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        font.bold: true
+      }
     }
   }
 
@@ -1650,6 +1668,44 @@ Panel {
     function checkoutValue() { return root.pct(rangeStats(store), "checkoutCvr") }
     function atcValue() { return root.pct(rangeStats(store), "atc") }
     function bounceValue() { return root.pct(rangeStats(store), "bounce") }
+
+    // Same-time-of-day comparison for a single KPI. Returns {up} when both
+    // sides are present numbers and differ, else null (no glyph).
+    function sameTimeTrend(same, base) {
+      if (same == null || base == null) return null
+      var a = Number(same)
+      var b = Number(base)
+      if (isNaN(a) || isNaN(b) || a === b) return null
+      return { up: a > b }
+    }
+    // Trend objects for the 8 KPI cells, gated to the Today range (the only
+    // range with a same-time-of-day baseline). Sales/Orders/AOV compare against
+    // the real-time yesterdaySoFar query; the sessions stats compare against
+    // yesterdayStatsSoFar (the local ~24h snapshot; null until snapshots accumulate).
+    function salesTrend() {
+      if (range !== rangeToday || !store) return null
+      return sameTimeTrend(store.today && store.today.sales, store.yesterdaySoFar && store.yesterdaySoFar.sales)
+    }
+    function ordersTrend() {
+      if (range !== rangeToday || !store) return null
+      return sameTimeTrend(store.today && store.today.orders, store.yesterdaySoFar && store.yesterdaySoFar.orders)
+    }
+    function aovTrend() {
+      if (range !== rangeToday || !store) return null
+      var t = store.today, y = store.yesterdaySoFar
+      var todayAov = (t && t.orders) ? (t.sales / t.orders) : null
+      var yestAov = (y && y.orders) ? (y.sales / y.orders) : null
+      return sameTimeTrend(todayAov, yestAov)
+    }
+    function cvrTrend() { return statsTodayTrend("cvr") }
+    function visitorsTrend() { return statsTodayTrend("visitors") }
+    function bounceTrend() { return statsTodayTrend("bounce") }
+    function atcTrend() { return statsTodayTrend("atc") }
+    function checkoutTrend() { return statsTodayTrend("checkoutCvr") }
+    function statsTodayTrend(field) {
+      if (range !== rangeToday || !store) return null
+      return sameTimeTrend(store.statsToday ? store.statsToday[field] : null, store.yesterdayStatsSoFar ? store.yesterdayStatsSoFar[field] : null)
+    }
 
     function sparkBarHeight(day) {
       var v = Number(day && day.sales)
@@ -1863,19 +1919,19 @@ Panel {
         Row {
           width: parent.width
           spacing: Style.space(10)
-          StatCell { width: card.statWidth; label: "Sales"; value: card.salesValue() }
-          StatCell { width: card.statWidth; label: "Orders"; value: card.ordersValue() }
-          StatCell { width: card.statWidth; label: "AOV"; value: card.aovValue() }
-          StatCell { width: card.statWidth; label: "CVR"; value: card.cvrValue() }
+          StatCell { width: card.statWidth; label: "Sales"; value: card.salesValue(); trend: card.salesTrend() }
+          StatCell { width: card.statWidth; label: "Orders"; value: card.ordersValue(); trend: card.ordersTrend() }
+          StatCell { width: card.statWidth; label: "AOV"; value: card.aovValue(); trend: card.aovTrend() }
+          StatCell { width: card.statWidth; label: "CVR"; value: card.cvrValue(); trend: card.cvrTrend() }
         }
 
         Row {
           width: parent.width
           spacing: Style.space(10)
-          StatCell { width: card.statWidth; label: "Visitors"; value: card.visitorsValue() }
-          StatCell { width: card.statWidth; label: "Checkout CVR"; value: card.checkoutValue() }
-          StatCell { width: card.statWidth; label: "ATC"; value: card.atcValue() }
-          StatCell { width: card.statWidth; label: "Bounce"; value: card.bounceValue() }
+          StatCell { width: card.statWidth; label: "Visitors"; value: card.visitorsValue(); trend: card.visitorsTrend() }
+          StatCell { width: card.statWidth; label: "Checkout CVR"; value: card.checkoutValue(); trend: card.checkoutTrend() }
+          StatCell { width: card.statWidth; label: "ATC"; value: card.atcValue(); trend: card.atcTrend() }
+          StatCell { width: card.statWidth; label: "Bounce"; value: card.bounceValue(); trend: card.bounceTrend() }
         }
       }
 
