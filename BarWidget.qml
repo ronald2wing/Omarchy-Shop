@@ -1447,6 +1447,7 @@ Panel {
         font.family: btn.fontFamily
         font.pixelSize: Style.font.caption
         elide: Text.ElideRight
+        textFormat: Text.PlainText
       }
 
       Text {
@@ -1836,6 +1837,7 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
             elide: Text.ElideRight
+            textFormat: Text.PlainText
           }
 
           Text {
@@ -1846,6 +1848,7 @@ Panel {
             font.pixelSize: Style.font.caption
             opacity: 0.7
             elide: Text.ElideRight
+            textFormat: Text.PlainText
             visible: card.domain !== ""
           }
         }
@@ -2028,6 +2031,7 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
       }
 
       Text {
@@ -2040,6 +2044,7 @@ Panel {
         wrapMode: Text.WordWrap
         maximumLineCount: 3
         elide: Text.ElideRight
+        textFormat: Text.PlainText
       }
 
       Text {
@@ -2052,6 +2057,7 @@ Panel {
         wrapMode: Text.WordWrap
         maximumLineCount: 3
         elide: Text.ElideRight
+        textFormat: Text.PlainText
       }
 
       PanelSeparator { foreground: root.foreground; strength: 0.08 }
@@ -2291,6 +2297,7 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
               elide: Text.ElideRight
+              textFormat: Text.PlainText
             }
 
             Text {
@@ -2300,6 +2307,7 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
+              textFormat: Text.PlainText
             }
           }
 
@@ -2532,6 +2540,7 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           elide: Text.ElideRight
+          textFormat: Text.PlainText
         }
 
         Text {
@@ -2541,6 +2550,7 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
+          textFormat: Text.PlainText
         }
       }
 

@@ -320,7 +320,7 @@ Item {
   function handleSales(domain, mode, exitCode, stdoutText, stderrText) {
     var dm = String(domain || "")
     var md = String(mode || "live")
-    var errText = String(stderrText || "")
+    var errText = M.sanitize(stderrText)
     var r = resultFor(dm)
     // The bin/sales.sh guard reports a missing CLI on stderr and exits 127;
     // flag it centrally so the widget can surface a warning banner.
@@ -527,7 +527,7 @@ Item {
     devRunning[dm] = false
     devUrl[dm] = ""
     var r = resultFor(dm)
-    var errText = M.stripAnsi(String(stderrText || ""))
+    var errText = M.sanitize(stderrText)
     r.lastSyncError = errText !== "" ? errText : ("theme dev exited (code " + exitCode + ")")
     writeState()
   }
@@ -889,16 +889,17 @@ Item {
       root.themeAction = ""
       themeSyncing[dm] = false
       var r = root.resultFor(dm)
+      var output = M.sanitize(themeStdout.text)
       if (root.themeTimedOut) {
         root.themeTimedOut = false
         r.lastSyncOutput = ""
         r.lastSyncError = (action === "pull" ? "Pull" : "Push") + " timed out"
       } else if (exitCode === 0) {
-        r.lastSyncOutput = M.stripAnsi(String(themeStdout.text || ""))
+        r.lastSyncOutput = output
         r.lastSyncError = ""
       } else {
-        r.lastSyncOutput = M.stripAnsi(String(themeStdout.text || ""))
-        r.lastSyncError = M.stripAnsi(String(themeStderr.text || "")) || (action + " failed")
+        r.lastSyncOutput = output
+        r.lastSyncError = M.sanitize(themeStderr.text) || (action + " failed")
       }
       root.writeState()
     }
@@ -950,7 +951,7 @@ Item {
     stderr: StdioCollector { id: cliInstallStderr; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode !== 0) {
-        var err = M.stripAnsi(String(cliInstallStderr.text || "")).trim()
+        var err = M.sanitize(cliInstallStderr.text)
         root.cliInstallError = err !== "" ? err : "CLI install failed"
         root.cliInstalling = false
       } else {

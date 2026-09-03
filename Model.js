@@ -181,6 +181,19 @@ function stripAnsi(text) {
     .trim()
 }
 
+// Truncate text to maxLen characters, appending "…" when truncated.
+function truncate(text, maxLen) {
+  if (text === null || text === undefined) return ""
+  text = String(text)
+  if (text.length <= maxLen) return text
+  return text.substring(0, maxLen) + "\u2026"
+}
+
+// Strip ANSI and truncate to 10240 characters.
+function sanitize(raw, maxLen = 10240) {
+  return truncate(stripAnsi(raw), maxLen)
+}
+
 // Case-insensitive natural sort: numeric runs compare numerically so "01" <
 // "10" and "00" < "01"; the rest compares as lowercased text.
 function naturalCompare(a, b) {
@@ -213,5 +226,5 @@ function formatEpoch(epochSeconds) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { parseSales: parseSales, formatMoney: formatMoney, formatCount: formatCount, formatPercent: formatPercent, symbolFor: symbolFor, stripAnsi: stripAnsi, naturalCompare: naturalCompare, formatEpoch: formatEpoch, rsi: rsi }
+  module.exports = { parseSales, formatMoney, formatCount, formatPercent, symbolFor, stripAnsi, truncate, sanitize, naturalCompare, formatEpoch, rsi }
 }
