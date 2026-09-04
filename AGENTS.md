@@ -63,7 +63,7 @@ State `~/.local/state/shop/state.json` — top-level `notifyNewOrders`, `cliMiss
 
 ## Shopify data path (verified against a live store)
 
-- Sales: `shopify store execute -j -s <domain> -q '<GraphQL>'`. Scope **`read_reports,read_orders`** (NOT `read_analytics`). One-time per store: `shopify store auth -s <domain> --scopes read_reports,read_orders` (the plugin runs this in-app via `authStore`).
+- Sales: `shopify store execute -j -s <domain> -q '<GraphQL>'`. Scope **`read_reports,read_orders,read_customers`** (NOT `read_analytics`). One-time per store: `shopify store auth -s <domain> --scopes read_reports,read_orders,read_customers` (the plugin runs this in-app via `authStore`).
 - `-j` output has **no top-level `data` wrapper** — queried fields are top-level, all cell values are strings.
 - Theme: `shopify theme push|pull --store <domain>` uses the existing OAuth session (`shop.admin.themes` scope) — no separate auth. Theme auth 401 ("Service is not valid for authentication") = stale session → `shopify auth logout && shopify auth login`.
 

@@ -366,8 +366,18 @@ Item {
               var store = findStore(dm)
               var name = store ? String(store.name || dm) : dm
               var money = M.formatMoney(parsed.today.sales, r.currency)
-              Quickshell.execDetached(["notify-send", "-a", "Shop", "New order",
-                                       name + ": now " + todayOrders + " orders today (" + money + ")"])
+              var body = name + ": now " + todayOrders + " orders today (" + money + ")"
+              var latest = parsed.today.latest
+              if (latest && latest.orderNumber) {
+                var parts = [latest.orderNumber]
+                if (latest.total != null) parts.push(M.formatMoney(latest.total, r.currency))
+                if (latest.customerName) parts.push(latest.customerName)
+                var header = parts.join(" \u00b7 ")
+                var itemText = M.formatItems(latest.items)
+                if (itemText) header += "\n" + itemText
+                body = header + "\n" + body
+              }
+              Quickshell.execDetached(["notify-send", "-a", "Shop", "New order", body])
               Quickshell.execDetached(["paplay", root.sourceDir + "/sounds/coin.oga"])
             }
             prevOrders[dm] = todayOrders
@@ -752,7 +762,7 @@ Item {
     if (!findStore(dm)) return "error: unknown store"
     authed[dm] = false
     writeState()
-    Quickshell.execDetached(["shopify", "store", "auth", "-s", dm, "--scopes", "read_reports,read_orders"])
+    Quickshell.execDetached(["shopify", "store", "auth", "-s", dm, "--scopes", "read_reports,read_orders,read_customers"])
     return "ok"
   }
 

@@ -35,6 +35,24 @@ function _parseRange(section) {
   }
 }
 
+// Edges are sorted by CREATED_AT DESC — edges[0] is the most recent order.
+function _latestOrder(edges) {
+  var first = edges[0] && edges[0].node
+  if (!first || !first.totalPriceSet || !first.totalPriceSet.shopMoney) return null
+  var total = Number(first.totalPriceSet.shopMoney.amount)
+  var cust = first.customer
+  var custName = cust ? [cust.firstName, cust.lastName].filter(Boolean).join(" ") : ""
+  var items = []
+  var li = first.lineItems
+  if (li && Array.isArray(li.edges)) {
+    for (var i = 0; i < li.edges.length; i++) {
+      var e = li.edges[i] && li.edges[i].node
+      if (e) items.push({ title: e.title, quantity: e.quantity })
+    }
+  }
+  return { orderNumber: first.name || null, total: isFinite(total) ? total : null, customerName: custName || null, items: items }
+}
+
 function _parseToday(section) {
   if (!section || !Array.isArray(section.edges)) return null
   var total = 0
@@ -46,7 +64,7 @@ function _parseToday(section) {
     var n = Number(money.amount)
     if (!isNaN(n)) total += n
   }
-  return { sales: Math.round(total * 100) / 100, orders: edges.length }
+  return { sales: Math.round(total * 100) / 100, orders: edges.length, latest: _latestOrder(edges) }
 }
 
 function _parseStats(section) {
@@ -194,6 +212,17 @@ function sanitize(raw, maxLen = 10240) {
   return truncate(stripAnsi(raw), maxLen)
 }
 
+// Format line items as "2x T-Shirt, 1x Hat". Empty array → "".
+function formatItems(items) {
+  if (!items || !items.length) return ""
+  var out = []
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i]
+    if (it) out.push(it.quantity + "x " + it.title)
+  }
+  return out.join(", ")
+}
+
 // Case-insensitive natural sort: numeric runs compare numerically so "01" <
 // "10" and "00" < "01"; the rest compares as lowercased text.
 function naturalCompare(a, b) {
@@ -226,5 +255,5 @@ function formatEpoch(epochSeconds) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { parseSales, formatMoney, formatCount, formatPercent, symbolFor, stripAnsi, truncate, sanitize, naturalCompare, formatEpoch, rsi }
+  module.exports = { parseSales, formatMoney, formatCount, formatPercent, symbolFor, stripAnsi, truncate, sanitize, formatItems, naturalCompare, formatEpoch, rsi }
 }

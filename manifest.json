@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shop",
   "name": "Shop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": "ronald2wing",
   "license": "MIT",
   "description": "Push/pull Shopify themes and watch per-store sales from the Omarchy bar. No token is stored — auth lives in the Shopify CLI.",

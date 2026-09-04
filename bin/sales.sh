@@ -44,7 +44,7 @@ if [ "$mode" = "live" ]; then
   read -r -d '' query <<EOF || true
 query {
   stats: shopifyqlQuery(query: "FROM sessions SHOW sessions, online_store_visitors, conversion_rate, added_to_cart_rate, checkout_conversion_rate DURING today") { tableData { columns { name } rows } parseErrors }
-  todayOrders: orders(first: 250, query: "created_at:>=$today") { edges { node { totalPriceSet { shopMoney { amount currencyCode } } } } pageInfo { hasNextPage endCursor } }
+  todayOrders: orders(first: 250, sortKey: CREATED_AT, reverse: true, query: "created_at:>=$today") { edges { node { name totalPriceSet { shopMoney { amount currencyCode } } customer { firstName lastName } lineItems(first: 5) { edges { node { title quantity } } } } } pageInfo { hasNextPage endCursor } }
 }
 EOF
 else
@@ -77,7 +77,7 @@ query {
   biweekSessionsSeries: shopifyqlQuery(query: "FROM sessions SHOW sessions TIMESERIES day SINCE -14d UNTIL -0d ORDER BY day ASC") { tableData { columns { name } rows } parseErrors }
   monthSessionsSeries: shopifyqlQuery(query: "FROM sessions SHOW sessions TIMESERIES day SINCE -30d UNTIL -0d ORDER BY day ASC") { tableData { columns { name } rows } parseErrors }
   allTimeSessionsSeries: shopifyqlQuery(query: "FROM sessions SHOW sessions TIMESERIES month SINCE -365d UNTIL -0d") { tableData { columns { name } rows } parseErrors }
-  yesterdayOrders: orders(first: 250, query: "created_at:>='$yesterday_start' AND created_at:<='$yesterday_cutoff'") { edges { node { totalPriceSet { shopMoney { amount currencyCode } } } } pageInfo { hasNextPage endCursor } }
+  yesterdayOrders: orders(first: 250, sortKey: CREATED_AT, reverse: true, query: "created_at:>='$yesterday_start' AND created_at:<='$yesterday_cutoff'") { edges { node { name totalPriceSet { shopMoney { amount currencyCode } } customer { firstName lastName } lineItems(first: 5) { edges { node { title quantity } } } } } pageInfo { hasNextPage endCursor } }
 }
 EOF
 fi
@@ -98,7 +98,7 @@ paginate_orders() {
   cursor="$(jq -r "$prefix.pageInfo.endCursor // \"\"" <<<"$result_json")"
   has_next="$(jq -r "$prefix.pageInfo.hasNextPage // false" <<<"$result_json")"
   while [[ "$has_next" == "true" && -n "$cursor" ]]; do
-    page="$(shopify store execute -j -s "$domain" -q "query { orders(first: 250, after: \"$cursor\", query: \"$filter\") { edges { node { totalPriceSet { shopMoney { amount currencyCode } } } } pageInfo { hasNextPage endCursor } } }")"
+    page="$(shopify store execute -j -s "$domain" -q "query { orders(first: 250, sortKey: CREATED_AT, reverse: true, after: \"$cursor\", query: \"$filter\") { edges { node { name totalPriceSet { shopMoney { amount currencyCode } } customer { firstName lastName } lineItems(first: 5) { edges { node { title quantity } } } } pageInfo { hasNextPage endCursor } } }")"
     edges="$(printf '%s\n%s\n' "$edges" "$page" | jq -s -c '[.[0][], (.[1].orders.edges // [])[]]')"
     cursor="$(jq -r '.orders.pageInfo.endCursor // ""' <<<"$page")"
     has_next="$(jq -r '.orders.pageInfo.hasNextPage // false' <<<"$page")"

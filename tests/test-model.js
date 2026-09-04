@@ -7,15 +7,15 @@ var raw = {
   month: { tableData: { columns: [{ name: "total_sales" }, { name: "orders" }], rows: [{ total_sales: "12345.67", orders: 310 }] }, parseErrors: [] },
   yesterdayOrders: {
     edges: [
-      { node: { totalPriceSet: { shopMoney: { amount: "120.10", currencyCode: "USD" } } } },
-      { node: { totalPriceSet: { shopMoney: { amount: "15.90", currencyCode: "USD" } } } }
+      { node: { name: "#1001", totalPriceSet: { shopMoney: { amount: "120.10", currencyCode: "USD" } }, customer: { firstName: "Alice", lastName: "Smith" }, lineItems: { edges: [] } } },
+      { node: { name: "#1002", totalPriceSet: { shopMoney: { amount: "15.90", currencyCode: "USD" } }, customer: null, lineItems: null } }
     ],
     pageInfo: { hasNextPage: false }
   },
   todayOrders: {
     edges: [
-      { node: { totalPriceSet: { shopMoney: { amount: "35.81", currencyCode: "USD" } } } },
-      { node: { totalPriceSet: { shopMoney: { amount: "34.99", currencyCode: "USD" } } } }
+      { node: { name: "#1005", totalPriceSet: { shopMoney: { amount: "35.81", currencyCode: "USD" } }, customer: { firstName: "Jane", lastName: "Doe" }, lineItems: { edges: [{ node: { title: "T-Shirt", quantity: 2 } }, { node: { title: "Hat", quantity: 1 } }] } } },
+      { node: { name: "#1004", totalPriceSet: { shopMoney: { amount: "34.99", currencyCode: "USD" } }, customer: { firstName: "John", lastName: null }, lineItems: { edges: [{ node: { title: "Mug", quantity: 1 } }] } } }
     ],
     pageInfo: { hasNextPage: false }
   },
@@ -155,6 +155,13 @@ var raw = {
 // today parsed from real-time orders edges (sum of shopMoney.amount, count = edges.length)
 assert.strictEqual(M.parseSales(raw).today.sales, 70.80)
 assert.strictEqual(M.parseSales(raw).today.orders, 2)
+
+// latest order details (edges[0], first row = most recent DESC)
+var latest = M.parseSales(raw).today.latest
+assert.strictEqual(latest.orderNumber, "#1005")
+assert.strictEqual(latest.total, 35.81)
+assert.strictEqual(latest.customerName, "Jane Doe")
+assert.deepStrictEqual(latest.items, [{ title: "T-Shirt", quantity: 2 }, { title: "Hat", quantity: 1 }])
 
 // week/month still parsed from ShopifyQL tableData (string cells)
 assert.strictEqual(M.parseSales(raw).week.sales, 890.10)

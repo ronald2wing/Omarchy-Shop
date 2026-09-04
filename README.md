@@ -49,7 +49,7 @@ omarchy plugin add https://github.com/ronald2wing/Omarchy-Shop --enable
 ```
 
 After installing, add a store (Configure → Add store, or Discover stores). Adding
-a store triggers a one-time browser authorization (Shopify `read_reports,read_orders`
+a store triggers a one-time browser authorization (Shopify `read_reports,read_orders,read_customers`
 scope); the token is stored by the Shopify CLI, not by this plugin.
 
 ## Removal
