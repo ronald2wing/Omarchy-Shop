@@ -71,7 +71,7 @@ Item {
   // hits the guard) and cleared on the next successful probe/poll — drives the
   // panel's warning banner.
   property bool cliMissing: false
-  // True while `npm install -g @shopify/cli@4.7.0` is in flight; the banner
+  // True while `mise use -g npm:@shopify/cli@4.7.0` is in flight; the banner
   // shows "Installing…" and hides the Install button.
   property bool cliInstalling: false
   // stderr from a failed CLI install, surfaced as a second line in the banner.
@@ -427,16 +427,19 @@ Item {
     r.lastError = "Sales query timed out"
   }
 
-  // One-click CLI install. `npm install -g` runs under mise's user-owned node,
-  // so no sudo is needed. A successful install is picked up by the
-  // post-install retry loop (installRefreshTimer), which re-probes the CLI
-  // directly and clears cliMissing once the mise shim resolves.
+  // One-click CLI install via `mise use -g npm:@shopify/cli@4.7.0`, whose
+  // backends create the `shopify` shim as a first-class step; plain
+  // `npm install -g` only calls mise's best-effort npm wrapper, which can
+  // silently skip reshimming. `-y` keeps it non-interactive (the service runs
+  // without a TTY). A successful install is picked up by the post-install retry
+  // loop (installRefreshTimer), which re-probes the CLI directly and clears
+  // cliMissing once the shim resolves.
   function installCli() {
     if (cliInstalling) return "error: already installing"
     cliInstalling = true
     cliInstallError = ""
     writeState()
-    cliInstallProcess.command = ["npm", "install", "-g", "@shopify/cli@4.7.0"]
+    cliInstallProcess.command = ["mise", "use", "-y", "-g", "npm:@shopify/cli@4.7.0"]
     cliInstallProcess.running = true
     return "ok"
   }
@@ -957,13 +960,13 @@ Item {
     }
   }
 
-  // One-shot global Shopify CLI install. stdout is collected (npm logs there)
-  // but only stderr is surfaced on failure.
-  // After a successful CLI install, re-probe every few seconds until the mise
-  // npm hook has reshimmmed (created the `shopify` shim) and cliMissing clears.
-  // Probes the CLI directly (not only via sales polls) so this settles with
-  // zero stores configured too. Keeps cliInstalling true the whole time so the
-  // banner shows "Installing…" without flashing the Install button again.
+  // One-shot global Shopify CLI install. stdout is collected (logs there) but
+  // only stderr is surfaced on failure.
+  // After a successful install, re-probe every few seconds until the `shopify`
+  // shim resolves and cliMissing clears. Probes the CLI directly (not only via
+  // sales polls) so this settles with zero stores configured too. Keeps
+  // cliInstalling true the whole time so the banner shows "Installing…" without
+  // flashing the Install button again.
   Timer {
     id: installRefreshTimer
     interval: 3000
@@ -977,6 +980,10 @@ Item {
         root.cliInstalling = false
         tries = 0
         stop()
+        // Still missing after the cap: the install ran but no shim appeared.
+        if (root.cliMissing) {
+          root.cliInstallError = "Shopify CLI installed but not found on PATH. Run `mise reshim` in a terminal, then Refresh."
+        }
         root.writeState()
       }
     }
