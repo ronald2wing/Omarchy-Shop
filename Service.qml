@@ -67,8 +67,9 @@ Item {
   // New-order notifications are on by default; `notifyNewOrders: false` in
   // config.json (or the config-mode toggle) silences the notify-send.
   readonly property bool notifyNewOrders: config.notifyNewOrders !== false
-  // Set when a sales poll fails because the `shopify` binary is absent, and
-  // cleared on the next successful poll — drives the panel's warning banner.
+  // Set when the `shopify` binary is absent (by checkCli or a sales poll that
+  // hits the guard) and cleared on the next successful probe/poll — drives the
+  // panel's warning banner.
   property bool cliMissing: false
   // True while `npm install -g @shopify/cli@4.7.0` is in flight; the banner
   // shows "Installing…" and hides the Install button.
@@ -204,12 +205,25 @@ Item {
 
   // ------------------------------------------------------------- sales poll
 
+  // Store-independent CLI presence probe: `command -v shopify`, the same
+  // semantics as bin/sales.sh's guard (exit 0 = present). Sales polls only run
+  // per store, so with zero stores configured nothing else would ever set
+  // cliMissing and the install banner would never appear. Runs at startup, on
+  // manual refresh, and in the post-install retry loop; the probe persists the
+  // flag so the file-driven widget banner updates.
+  function checkCli() {
+    if (cliProbeProcess.running) return
+    cliProbeProcess.running = true
+  }
+
   // `refresh` (IPC/manual) repolls everything for freshness; the two cadences
   // (live 60s / historical hourly) each call their own half.
   function refresh() {
+    // Re-probe even with no stores so a manual refresh can re-trigger the
+    // presence check (and the install banner).
+    checkCli()
     var list = config.stores || []
     if (list.length === 0) {
-      writeState()
       return "ok"
     }
     refreshLive()
@@ -414,8 +428,9 @@ Item {
   }
 
   // One-click CLI install. `npm install -g` runs under mise's user-owned node,
-  // so no sudo is needed. A successful install is picked up by the next sales
-  // poll (up to refreshIntervalSec later), which clears cliMissing on its own.
+  // so no sudo is needed. A successful install is picked up by the
+  // post-install retry loop (installRefreshTimer), which re-probes the CLI
+  // directly and clears cliMissing once the mise shim resolves.
   function installCli() {
     if (cliInstalling) return "error: already installing"
     cliInstalling = true
@@ -930,12 +945,25 @@ Item {
     }
   }
 
+  // Presence probe for the `shopify` binary. `command -v` is a shell builtin,
+  // so it runs under bash; exit 0 means found. Result drives cliMissing and is
+  // persisted so the file-driven widget banner updates.
+  Process {
+    id: cliProbeProcess
+    command: ["bash", "-c", "command -v shopify >/dev/null 2>&1"]
+    onExited: function(exitCode) {
+      root.cliMissing = (exitCode !== 0)
+      root.writeState()
+    }
+  }
+
   // One-shot global Shopify CLI install. stdout is collected (npm logs there)
   // but only stderr is surfaced on failure.
-  // After a successful CLI install, re-poll every few seconds until the mise
+  // After a successful CLI install, re-probe every few seconds until the mise
   // npm hook has reshimmmed (created the `shopify` shim) and cliMissing clears.
-  // Keeps cliInstalling true the whole time so the banner shows "Installing…"
-  // without flashing the Install button again.
+  // Probes the CLI directly (not only via sales polls) so this settles with
+  // zero stores configured too. Keeps cliInstalling true the whole time so the
+  // banner shows "Installing…" without flashing the Install button again.
   Timer {
     id: installRefreshTimer
     interval: 3000
@@ -944,7 +972,7 @@ Item {
     onTriggered: {
       tries += 1
       if (root.cliMissing && tries < 10) {
-        root.refreshLive()
+        root.checkCli()
       } else {
         root.cliInstalling = false
         tries = 0
@@ -1135,5 +1163,7 @@ Item {
   Component.onCompleted: {
     Quickshell.execDetached(["mkdir", "-p", configDir])
     Quickshell.execDetached(["mkdir", "-p", stateDir])
+    // Probe at startup so a missing CLI surfaces the banner even with no stores.
+    checkCli()
   }
 }
