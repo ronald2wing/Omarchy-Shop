@@ -138,6 +138,26 @@ function parseSales(raw) {
   return out
 }
 
+// `store list --json` payloads carry `stores[]`; map them to the widget's
+// `{name, domain}` rows, falling back to the subdomain when the shop has no
+// display name.
+function parseStoreRows(jsonText) {
+  var rows = []
+  try {
+    var parsed = JSON.parse(String(jsonText || "{}"))
+    if (parsed && Array.isArray(parsed.stores)) {
+      for (var i = 0; i < parsed.stores.length; i++) {
+        var s = parsed.stores[i]
+        if (!s || !s.store) continue
+        rows.push({ name: String(s.name || s.store), domain: String(s.store) })
+      }
+    }
+  } catch (e) {
+    // Malformed payload: settle with no rows.
+  }
+  return rows
+}
+
 // Interpret a non-interactive `shopify store list --json` result. The marker
 // strings are the CLI's verbatim text: exit 0 is a successful listing; a login
 // prompt means logged out; "organization ID is required" means authenticated on
@@ -267,5 +287,5 @@ function formatEpoch(epochSeconds) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { parseSales, classifyLoginProbe, formatMoney, formatCount, formatPercent, symbolFor, stripAnsi, truncate, sanitize, formatItems, naturalCompare, formatEpoch, rsi }
+  module.exports = { parseSales, parseStoreRows, classifyLoginProbe, formatMoney, formatCount, formatPercent, symbolFor, stripAnsi, truncate, sanitize, formatItems, naturalCompare, formatEpoch, rsi }
 }

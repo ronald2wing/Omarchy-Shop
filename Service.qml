@@ -5,8 +5,9 @@ import "Model.js" as M
 
 // Shop — headless service. Owns the IPC target the bar widget talks to,
 // polls per-store sales, and runs theme push/pull. All external work shells
-// out to `shopify` via bin/sales.sh and bin/theme.sh; no credentials live here
-// (auth stays in the Shopify CLI state, one `store auth` per store).
+// out to `shopify` via bin/sales.sh, bin/theme.sh, and bin/discover-stores.sh;
+// no credentials live here (auth stays in the Shopify CLI state, one `store auth`
+// per store).
 //
 // A `service` kind receives no `settings` property, so every tunable lives in
 // the plugin's own config file (~/.config/shop/config.json), read through
@@ -222,8 +223,15 @@ Item {
   // Non-interactive account-session probe, deduped like checkCli. Used at
   // startup, on refresh, and by loginProcess.onExited after login.
   function checkLogin() {
-    if (loginProbeProcess.running) return
-    loginProbeProcess.running = true
+    startLoginProbe("check")
+  }
+
+  // Start the account probe, or promote one already in flight to a discovery
+  // run. A plain "check" never demotes a probe that is mid-discovery.
+  function startLoginProbe(context) {
+    if (loginProbeProcess.running && context === "check") return
+    loginProbeProcess.context = context
+    if (!loginProbeProcess.running) loginProbeProcess.running = true
   }
 
   // Persist the login flag only when it actually changes.
@@ -579,6 +587,12 @@ Item {
 
   // ------------------------------------------------------------- store discovery
 
+  // (Re)arm the per-call discovery watchdog for the given window.
+  function armDiscoveryWatchdog(ms) {
+    discoveryWatchdog.interval = ms
+    discoveryWatchdog.restart()
+  }
+
   function discoverStores() {
     if (discovering) return "error: discovery already running"
     discovering = true
@@ -590,8 +604,7 @@ Item {
     // of all 19 orgs. Phase 2 (handleShopName) enriches real names per store.
     authProcess.command = ["shopify", "store", "auth", "list", "--json"]
     authProcess.running = true
-    discoveryWatchdog.interval = 30000
-    discoveryWatchdog.restart()
+    armDiscoveryWatchdog(30000)
     return "ok"
   }
 
@@ -612,7 +625,14 @@ Item {
       discoveryPending[sub] = true
       discoveryFound.push({ name: sub, domain: sub + ".myshopify.com" })
     }
-    if (discoveryFound.length === 0) { finishDiscovery([]); return }
+    if (discoveryFound.length === 0) {
+      // No store-auth sessions: the account probe's org listing distinguishes
+      // logged-out from logged-in-with-none. Promote a running probe so its
+      // result also settles this discovery; otherwise start one.
+      startLoginProbe("discovery")
+      armDiscoveryWatchdog(30000)
+      return
+    }
     // Store-auth sessions prove the account is logged in.
     setLoginRequired(false)
     // Land the phase-1 result now; discovery stays in flight to enrich names.
@@ -626,16 +646,26 @@ Item {
       var p = shopNameComponent.createObject(root, { svc: root, dm: String(entry.domain) })
       if (p) p.running = true
     }
-    discoveryWatchdog.interval = 30000
-    discoveryWatchdog.restart()
+    armDiscoveryWatchdog(30000)
   }
 
-  // Apply the probe classification (Model.js) to the login flag. `ambiguous`
-  // leaves it unchanged; `multiOrg` is authenticated too (it only lacks an org
-  // id), so a login prompt is the sole "logged out" signal.
-  function handleLoginProbe(exitCode, stderrText) {
+  // Apply the account probe (Model.js): on success parse the store rows, apply
+  // the login flag, and (in a discovery run) settle discovery or start the
+  // multi-org merge. `ambiguous` leaves the flag unchanged.
+  function handleLoginProbe(context, exitCode, stdoutText, stderrText) {
+    var rows = []
     var kind = M.classifyLoginProbe(exitCode, stderrText)
+    if (kind === "loggedIn") rows = M.parseStoreRows(stdoutText)
     if (kind !== "ambiguous") setLoginRequired(kind === "loggedOut")
+    // multiOrg is authenticated but `store list` needs an org id; a discovery
+    // run merges every org's stores (~20-30s) under a 60s watchdog ceiling.
+    // The merge's own handler settles discovery.
+    if (kind === "multiOrg" && context === "discovery") {
+      armDiscoveryWatchdog(60000)
+      multiOrgStoresProcess.running = true
+      return
+    }
+    if (context === "discovery") finishDiscovery(rows)
   }
 
   function handleShopName(exitCode, stdoutText, dm) {
@@ -676,6 +706,16 @@ Item {
     discoveryFound = list || []
     discoveryFound.sort(function(a, b) { return M.naturalCompare(a ? a.name : "", b ? b.name : "") })
     writeDiscovery()
+  }
+
+  // A watchdog kill sets discoveryTimedOut; the process it killed consumes the
+  // flag here and settles the run with no rows. Returns true when it handled it,
+  // so callers can early-return.
+  function consumeDiscoveryTimeout() {
+    if (!discoveryTimedOut) return false
+    discoveryTimedOut = false
+    finishDiscovery([])
+    return true
   }
 
   // ------------------------------------------------------------- config mutation
@@ -976,23 +1016,38 @@ Item {
     stdout: StdioCollector { id: authStdout; waitForEnd: true }
     stderr: StdioCollector { id: authStderr; waitForEnd: true }
     onExited: function(exitCode) {
-      if (root.discoveryTimedOut) {
-        root.discoveryTimedOut = false
-        root.finishDiscovery([])
-      } else {
-        root.handleAuthList(exitCode, authStdout.text)
-      }
+      if (root.consumeDiscoveryTimeout()) return
+      root.handleAuthList(exitCode, authStdout.text)
     }
   }
 
-  // Non-interactive account-session probe. `CI=1 exec` keeps it from opening a
-  // browser and hanging in the daemon; only the stderr classification is used.
+  // Non-interactive account probe; context "discovery" also settles a discovery
+  // run. `CI=1 exec` keeps it from opening a browser and hanging in the daemon.
   Process {
     id: loginProbeProcess
+    property string context: "check"
     command: ["bash", "-c", "CI=1 exec shopify store list --json"]
+    stdout: StdioCollector { id: loginProbeStdout; waitForEnd: true }
     stderr: StdioCollector { id: loginProbeStderr; waitForEnd: true }
     onExited: function(exitCode) {
-      root.handleLoginProbe(exitCode, loginProbeStderr.text)
+      if (root.consumeDiscoveryTimeout()) return
+      root.handleLoginProbe(loginProbeProcess.context, exitCode, loginProbeStdout.text, loginProbeStderr.text)
+    }
+  }
+
+  // Multi-org fallback: the account probe reported "organization ID is required"
+  // during a discovery run, so list every org's stores via
+  // `bin/discover-stores.sh` and settle discovery from its merged output. The
+  // script bounds its own parallelism; this process only runs in the discovery
+  // context.
+  Process {
+    id: multiOrgStoresProcess
+    command: ["bash", root.sourceDir + "/bin/discover-stores.sh"]
+    stdout: StdioCollector { id: multiOrgStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (root.consumeDiscoveryTimeout()) return
+      var rows = exitCode === 0 ? M.parseStoreRows(multiOrgStdout.text) : []
+      root.finishDiscovery(rows)
     }
   }
 
@@ -1176,8 +1231,9 @@ Item {
 
   // Per-call watchdog for discovery. Phase 1 (auth list) is guarded per call;
   // phase 2 (the concurrent `shop { name }` batch) is guarded as a whole with
-  // the window set in handleAuthList. A stalled phase-1 process is killed; a
-  // stalled phase-2 batch settles to the subdomain names already landed.
+  // the window set in handleAuthList; the multi-org merge is guarded per call
+  // (restarted in handleLoginProbe). A stalled process is killed; the merge and
+  // the phase-2 batch settle through their own exit handlers.
   Timer {
     id: discoveryWatchdog
     interval: 30000
@@ -1186,6 +1242,14 @@ Item {
       if (authProcess.running) {
         root.discoveryTimedOut = true
         authProcess.running = false
+      } else if (loginProbeProcess.running) {
+        // Probe hung (should be fast with CI=1): settle to no rows.
+        root.discoveryTimedOut = true
+        loginProbeProcess.running = false
+      } else if (multiOrgStoresProcess.running) {
+        // Merge ran long: kill it; its onExited settles to no rows.
+        root.discoveryTimedOut = true
+        multiOrgStoresProcess.running = false
       } else if (root.discovering) {
         // Phase-2 batch guard: the subdomain names are already written, so
         // settle to whatever we have rather than aborting to [].

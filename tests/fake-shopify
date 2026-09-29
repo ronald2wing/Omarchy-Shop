@@ -3,11 +3,25 @@
 # never touching the network. Records each invocation's args (one line) to
 # $SHOPIFY_FAKE_LOG so tests can assert what the wrapper scripts forwarded.
 # `theme list` emits a 401 when SHOPIFY_FAKE_AUTH_FAIL=1.
+# `organization list` / `store list --organization-id` drive the
+# discover-stores.sh tests: SHOPIFY_FAKE_ORGS overrides the org list,
+# SHOPIFY_FAKE_STORES overrides every org's store payload, and
+# SHOPIFY_FAKE_FAIL_ORG_ID makes that org's `store list` exit 1.
 
 set -u
 
 log="${SHOPIFY_FAKE_LOG:-}"
 if [ -n "$log" ]; then printf '%s\n' "$*" >> "$log"; fi
+
+# Echo the value following <flag> in "$@"; empty when the flag is absent.
+argval() {
+  local flag="$1" prev="" a
+  shift
+  for a in "$@"; do
+    if [ "$prev" = "$flag" ]; then printf '%s' "$a"; return; fi
+    prev="$a"
+  done
+}
 
 top="${1:-}"
 sub="${2:-}"
@@ -16,13 +30,8 @@ case "$top" in
   store)
     case "$sub" in
       execute)
-        # args: store execute -j -s <domain> -q <query>. Find the -q value.
-        q=""
-        prev=""
-        for a in "$@"; do
-          if [ "$prev" = "-q" ]; then q="$a"; break; fi
-          prev="$a"
-        done
+        # args: store execute -j -s <domain> -q <query>.
+        q="$(argval -q "$@")"
         case "$q" in
           *"shopifyqlQuery"*)
             printf '%s\n' '{"week":{"tableData":{"columns":[{"name":"total_sales"},{"name":"orders"}],"rows":[{"total_sales":"890.10","orders":95}]},"parseErrors":[]},"month":{"tableData":{"columns":[{"name":"total_sales"},{"name":"orders"}],"rows":[{"total_sales":"12345.67","orders":310}]},"parseErrors":[]},"weekSeries":{"tableData":{"columns":[{"name":"day"},{"name":"total_sales"}],"rows":[{"day":"2026-08-13","total_sales":"100.00"},{"day":"2026-08-14","total_sales":"0.00"},{"day":"2026-08-15","total_sales":"250.50"},{"day":"2026-08-16","total_sales":"0.00"},{"day":"2026-08-17","total_sales":"75.25"},{"day":"2026-08-18","total_sales":"300.00"},{"day":"2026-08-19","total_sales":"120.40"}]},"parseErrors":[]},"biweekSeries":{"tableData":{"columns":[{"name":"day"},{"name":"total_sales"}],"rows":[{"day":"2026-08-05","total_sales":"10.00"},{"day":"2026-08-06","total_sales":"20.00"},{"day":"2026-08-19","total_sales":"0.00"}]},"parseErrors":[]},"monthSeries":{"tableData":{"columns":[{"name":"day"},{"name":"total_sales"}],"rows":[{"day":"2026-07-20","total_sales":"5.00"},{"day":"2026-08-19","total_sales":"0.00"}]},"parseErrors":[]},"allTimeSeries":{"tableData":{"columns":[{"name":"month"},{"name":"total_sales"}],"rows":[{"month":"2026-05-01","total_sales":"0"},{"month":"2026-06-01","total_sales":"0"},{"month":"2026-07-01","total_sales":"1013.42"},{"month":"2026-08-01","total_sales":"2257.97"}]},"parseErrors":[]},"weekSessionsSeries":{"tableData":{"columns":[{"name":"day"},{"name":"sessions"}],"rows":[{"day":"2026-08-13","sessions":"100"},{"day":"2026-08-14","sessions":"120"},{"day":"2026-08-15","sessions":"80"},{"day":"2026-08-16","sessions":"95"},{"day":"2026-08-17","sessions":"130"},{"day":"2026-08-18","sessions":"200"},{"day":"2026-08-19","sessions":"150"}]},"parseErrors":[]},"biweekSessionsSeries":{"tableData":{"columns":[{"name":"day"},{"name":"sessions"}],"rows":[{"day":"2026-08-05","sessions":"50"},{"day":"2026-08-06","sessions":"70"},{"day":"2026-08-19","sessions":"0"}]},"parseErrors":[]},"monthSessionsSeries":{"tableData":{"columns":[{"name":"day"},{"name":"sessions"}],"rows":[{"day":"2026-07-20","sessions":"40"},{"day":"2026-08-19","sessions":"0"}]},"parseErrors":[]},"allTimeSessionsSeries":{"tableData":{"columns":[{"name":"month"},{"name":"sessions"}],"rows":[{"month":"2026-05-01","sessions":"0"},{"month":"2026-06-01","sessions":"0"},{"month":"2026-07-01","sessions":"3000"},{"month":"2026-08-01","sessions":"4000"}]},"parseErrors":[]},"stats":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"1621","online_store_visitors":"1584","conversion_rate":"0.004935","added_to_cart_rate":"0.07587","checkout_conversion_rate":"0.1860"}]},"parseErrors":[]},"statsWeek":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"3446","online_store_visitors":"3232","conversion_rate":"0.007545","added_to_cart_rate":"0.09228","checkout_conversion_rate":"0.2031"}]},"parseErrors":[]},"statsBiweek":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"5000","online_store_visitors":"4700","conversion_rate":"0.006","added_to_cart_rate":"0.08","checkout_conversion_rate":"0.2"}]},"parseErrors":[]},"statsMonth":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"6000","online_store_visitors":"5600","conversion_rate":"0.0065","added_to_cart_rate":"0.07","checkout_conversion_rate":"0.19"}]},"parseErrors":[]},"statsAll":{"tableData":{"columns":[{"name":"sessions"},{"name":"online_store_visitors"},{"name":"conversion_rate"},{"name":"added_to_cart_rate"},{"name":"checkout_conversion_rate"}],"rows":[{"sessions":"7806","online_store_visitors":"6974","conversion_rate":"0.009096","added_to_cart_rate":"0.08417","checkout_conversion_rate":"0.2457"}]},"parseErrors":[]},"yesterdayOrders":{"edges":[{"node":{"totalPriceSet":{"shopMoney":{"amount":"120.10","currencyCode":"USD"}}}}],"pageInfo":{"hasNextPage":false}},"todayOrders":{"edges":[{"node":{"totalPriceSet":{"shopMoney":{"amount":"35.81","currencyCode":"USD"}}}}],"pageInfo":{"hasNextPage":false}}}'
@@ -32,6 +41,35 @@ case "$top" in
             ;;
           *) printf '%s\n' '{}' ;;
         esac
+        ;;
+      list)
+        # args: store list [--organization-id <id>] --json.
+        org="$(argval --organization-id "$@")"
+        if [ -n "${SHOPIFY_FAKE_FAIL_ORG_ID:-}" ] && [ "$org" = "$SHOPIFY_FAKE_FAIL_ORG_ID" ]; then
+          printf '%s\n' "failed to list stores for organization $org" >&2
+          exit 1
+        fi
+        if [ -n "${SHOPIFY_FAKE_STORES:-}" ]; then
+          printf '%s\n' "$SHOPIFY_FAKE_STORES"
+        elif [ "$org" = "100" ]; then
+          printf '%s\n' '{"stores":[{"id":"1","store":"alpha.myshopify.com","name":"Alpha"},{"id":"2","store":"shared.myshopify.com","name":"Shared (A)"}]}'
+        elif [ "$org" = "200" ]; then
+          printf '%s\n' '{"stores":[{"id":"3","store":"beta.myshopify.com","name":"Beta"},{"id":"4","store":"shared.myshopify.com","name":"Shared (B)"}]}'
+        else
+          printf '%s\n' '{"stores": []}'
+        fi
+        ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  organization)
+    case "$sub" in
+      list)
+        if [ -n "${SHOPIFY_FAKE_ORGS:-}" ]; then
+          printf '%s\n' "$SHOPIFY_FAKE_ORGS"
+        else
+          printf '%s\n' '{"organizations":[{"id":"100","name":"Org A"},{"id":"200","name":"Org B"}]}'
+        fi
         ;;
       *) exit 1 ;;
     esac

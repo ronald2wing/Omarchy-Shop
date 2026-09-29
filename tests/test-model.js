@@ -384,6 +384,17 @@ assert.strictEqual(M.formatEpoch("abc"), "")
 assert.strictEqual(M.formatEpoch(null), "")
 assert.strictEqual(M.formatEpoch(undefined), "")
 
+// parseStoreRows: map `stores[]` to {name, domain}, name falling back to the
+// subdomain; unknown/malformed payloads yield [] (never throw).
+assert.deepStrictEqual(
+  M.parseStoreRows('{"stores":[{"store":"a.myshopify.com","name":"Alpha"},{"store":"b.myshopify.com"}]}'),
+  [{ name: "Alpha", domain: "a.myshopify.com" }, { name: "b.myshopify.com", domain: "b.myshopify.com" }]
+)
+assert.deepStrictEqual(M.parseStoreRows('{"stores":[{"id":"x"},{"store":"c.myshopify.com","name":"C"}]}'), [{ name: "C", domain: "c.myshopify.com" }])
+assert.deepStrictEqual(M.parseStoreRows('{"sessions":[]}'), [])
+assert.deepStrictEqual(M.parseStoreRows('not json'), [])
+assert.deepStrictEqual(M.parseStoreRows(""), [])
+
 // classifyLoginProbe: exact marker strings observed from the CLI.
 assert.strictEqual(M.classifyLoginProbe(0, ""), "loggedIn")
 assert.strictEqual(M.classifyLoginProbe(0, "junk on stderr"), "loggedIn")
