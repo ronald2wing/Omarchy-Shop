@@ -384,4 +384,12 @@ assert.strictEqual(M.formatEpoch("abc"), "")
 assert.strictEqual(M.formatEpoch(null), "")
 assert.strictEqual(M.formatEpoch(undefined), "")
 
+// classifyLoginProbe: exact marker strings observed from the CLI.
+assert.strictEqual(M.classifyLoginProbe(0, ""), "loggedIn")
+assert.strictEqual(M.classifyLoginProbe(0, "junk on stderr"), "loggedIn")
+assert.strictEqual(M.classifyLoginProbe(1, "To run this command, log in to Shopify."), "loggedOut")
+assert.strictEqual(M.classifyLoginProbe(1, "An organization ID is required to list stores non-interactively."), "multiOrg")
+assert.strictEqual(M.classifyLoginProbe(1, "some other error"), "ambiguous")
+assert.strictEqual(M.classifyLoginProbe(1, ""), "ambiguous")
+
 console.log("all model tests passed")

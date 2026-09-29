@@ -55,6 +55,10 @@ Panel {
   property bool cliMissing: false
   property bool cliInstalling: false
   property string cliInstallError: ""
+  // state.json: the account probe found no Shopify session.
+  property bool loginRequired: false
+  // Logged out with the CLI present: the Discover button becomes a login action.
+  readonly property bool loginPrompt: loginRequired && !cliMissing
 
   // Only stores with showOnBar set appear on the bar; the panel still lists
   // every store. The service defaults a new store to shown only while fewer
@@ -230,6 +234,9 @@ Panel {
     runIpc(["addStore", String(entry.name || ""), dm, ""])
   }
 
+  // Opens the Shopify login (device-code flow) in the browser.
+  function loginShopify() { runIpc(["loginShopify"]) }
+
   function isAdded(domain) {
     for (var i = 0; i < stores.length; i++) {
       if (stores[i] && String(stores[i].domain) === domain) return true
@@ -334,6 +341,7 @@ Panel {
     root.cliMissing = (stateRaw && stateRaw.cliMissing) === true
     root.cliInstalling = (stateRaw && stateRaw.cliInstalling) === true
     root.cliInstallError = (stateRaw && stateRaw.cliInstallError) ? String(stateRaw.cliInstallError) : ""
+    root.loginRequired = (stateRaw && stateRaw.loginRequired) === true
     var stateStores = (stateRaw && Array.isArray(stateRaw.stores)) ? stateRaw.stores : []
     var cfgStores = parseStores(configFile.text())
     var merged = []
@@ -1136,12 +1144,12 @@ Panel {
               }
 
               Button {
-                text: "Discover stores"
-                iconText: "󰍉"
+                text: root.loginPrompt ? "Log in to discover stores" : "Discover stores"
+                iconText: root.loginPrompt ? "󰌆" : "󰍉"
                 foreground: root.foreground
                 bordered: true
-                tooltipText: "Find stores you can access via the Shopify CLI"
-                onClicked: root.discoverStores()
+                tooltipText: root.loginPrompt ? "Opens the Shopify login page in your browser" : "Find stores you can access via the Shopify CLI"
+                onClicked: root.loginPrompt ? root.loginShopify() : root.discoverStores()
               }
             }
 

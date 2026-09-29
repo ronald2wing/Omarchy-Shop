@@ -138,6 +138,18 @@ function parseSales(raw) {
   return out
 }
 
+// Interpret a non-interactive `shopify store list --json` result. The marker
+// strings are the CLI's verbatim text: exit 0 is a successful listing; a login
+// prompt means logged out; "organization ID is required" means authenticated on
+// a multi-org account. Anything else is ambiguous (caller leaves the flag).
+function classifyLoginProbe(exitCode, stderrText) {
+  if (exitCode === 0) return "loggedIn"
+  var err = String(stderrText || "")
+  if (err.indexOf("log in to Shopify") !== -1) return "loggedOut"
+  if (err.indexOf("organization ID is required") !== -1) return "multiOrg"
+  return "ambiguous"
+}
+
 function _fmt(n) {
   if (n === null || n === undefined || isNaN(n)) return "—"
   var neg = n < 0
@@ -255,5 +267,5 @@ function formatEpoch(epochSeconds) {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { parseSales, formatMoney, formatCount, formatPercent, symbolFor, stripAnsi, truncate, sanitize, formatItems, naturalCompare, formatEpoch, rsi }
+  module.exports = { parseSales, classifyLoginProbe, formatMoney, formatCount, formatPercent, symbolFor, stripAnsi, truncate, sanitize, formatItems, naturalCompare, formatEpoch, rsi }
 }

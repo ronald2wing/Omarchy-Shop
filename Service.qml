@@ -96,6 +96,9 @@ Item {
   property bool discoveryTimedOut: false
   property var discoveryFound: []    // accumulated {name, domain}
   property var discoveryPending: null // subdomain -> true (phase-1 names still to enrich)
+  // No Shopify account session (non-interactive probe), persisted to state.json;
+  // drives the widget's login prompt.
+  property bool loginRequired: false
 
   // ------------------------------------------------------------- helpers
 
@@ -174,7 +177,7 @@ Item {
     }
     return { notifyNewOrders: root.notifyNewOrders, cliMissing: root.cliMissing,
              cliInstalling: root.cliInstalling,
-             cliInstallError: root.cliInstallError, stores: stores }
+             cliInstallError: root.cliInstallError, loginRequired: root.loginRequired, stores: stores }
   }
 
   function writeState() {
@@ -216,12 +219,26 @@ Item {
     cliProbeProcess.running = true
   }
 
+  // Non-interactive account-session probe, deduped like checkCli. Used at
+  // startup, on refresh, and by loginProcess.onExited after login.
+  function checkLogin() {
+    if (loginProbeProcess.running) return
+    loginProbeProcess.running = true
+  }
+
+  // Persist the login flag only when it actually changes.
+  function setLoginRequired(required) {
+    if (loginRequired === required) return
+    loginRequired = required
+    writeState()
+  }
+
   // `refresh` (IPC/manual) repolls everything for freshness; the two cadences
   // (live 60s / historical hourly) each call their own half.
   function refresh() {
-    // Re-probe even with no stores so a manual refresh can re-trigger the
-    // presence check (and the install banner).
+    // Re-probe even with no stores so a manual refresh re-checks CLI + login.
     checkCli()
+    checkLogin()
     var list = config.stores || []
     if (list.length === 0) {
       return "ok"
@@ -596,6 +613,8 @@ Item {
       discoveryFound.push({ name: sub, domain: sub + ".myshopify.com" })
     }
     if (discoveryFound.length === 0) { finishDiscovery([]); return }
+    // Store-auth sessions prove the account is logged in.
+    setLoginRequired(false)
     // Land the phase-1 result now; discovery stays in flight to enrich names.
     writeDiscovery()
     // Phase 2: resolve each store's real name with a fast per-store
@@ -609,6 +628,14 @@ Item {
     }
     discoveryWatchdog.interval = 30000
     discoveryWatchdog.restart()
+  }
+
+  // Apply the probe classification (Model.js) to the login flag. `ambiguous`
+  // leaves it unchanged; `multiOrg` is authenticated too (it only lacks an org
+  // id), so a login prompt is the sole "logged out" signal.
+  function handleLoginProbe(exitCode, stderrText) {
+    var kind = M.classifyLoginProbe(exitCode, stderrText)
+    if (kind !== "ambiguous") setLoginRequired(kind === "loggedOut")
   }
 
   function handleShopName(exitCode, stdoutText, dm) {
@@ -784,6 +811,16 @@ Item {
     return "ok"
   }
 
+  // Device-code flow opens the browser: do NOT set CI (it would fail fast).
+  // `--alias shop` is required in this non-TTY context, else the CLI exits
+  // `Flag not specified: --alias` without opening the flow. The while-running
+  // guard ignores repeat clicks while a login is open.
+  function loginShopify() {
+    if (loginProcess.running) return "ok"
+    loginProcess.running = true
+    return "ok"
+  }
+
   // ------------------------------------------------------------- files
 
   FileView {
@@ -948,6 +985,17 @@ Item {
     }
   }
 
+  // Non-interactive account-session probe. `CI=1 exec` keeps it from opening a
+  // browser and hanging in the daemon; only the stderr classification is used.
+  Process {
+    id: loginProbeProcess
+    command: ["bash", "-c", "CI=1 exec shopify store list --json"]
+    stderr: StdioCollector { id: loginProbeStderr; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.handleLoginProbe(exitCode, loginProbeStderr.text)
+    }
+  }
+
   // Presence probe for the `shopify` binary. `command -v` is a shell builtin,
   // so it runs under bash; exit 0 means found. Result drives cliMissing and is
   // persisted so the file-driven widget banner updates.
@@ -986,6 +1034,16 @@ Item {
         }
         root.writeState()
       }
+    }
+  }
+
+  // Managed login: the CLI blocks through the device flow and exits when done
+  // or the code expires, so its exit is the moment to re-probe the session.
+  Process {
+    id: loginProcess
+    command: ["shopify", "auth", "login", "--alias", "shop"]
+    onExited: function() {
+      root.checkLogin()
     }
   }
 
@@ -1161,6 +1219,7 @@ Item {
     function setNotifyNewOrders(enabled: string): string { return root.setNotifyNewOrders(enabled) }
     function authStore(domain: string): string { return root.authStore(domain) }
     function discoverStores(): string { return root.discoverStores() }
+    function loginShopify(): string { return root.loginShopify() }
     function installCli(): string { return root.installCli() }
     function restoreBackup(domain: string, epoch: string): string { return root.restoreBackup(domain, epoch) }
     function startDev(domain: string): string { return root.startDev(domain) }
@@ -1172,5 +1231,7 @@ Item {
     Quickshell.execDetached(["mkdir", "-p", stateDir])
     // Probe at startup so a missing CLI surfaces the banner even with no stores.
     checkCli()
+    // Probe the account session at startup so the Discover button starts right.
+    checkLogin()
   }
 }
