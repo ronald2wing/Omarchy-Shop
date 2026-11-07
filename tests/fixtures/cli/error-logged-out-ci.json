@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "Authorization is required to continue, but the current environment does not support interactive prompts.",
+    "tryMessage": "To resolve this, specify credentials in your environment, or run the command in an interactive environment such as your local terminal."
+  }
+}

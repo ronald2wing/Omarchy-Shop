@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "templates/customers/login.liquid: Liquid syntax error (line 3): Unknown tag 'endform'",
+    "tryMessage": "Check your proxy authentication settings if this keeps happening."
+  }
+}

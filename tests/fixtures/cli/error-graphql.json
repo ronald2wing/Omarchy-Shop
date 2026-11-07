@@ -1,0 +1,17 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "GraphQL operation failed.",
+    "tryMessage": "{\n  \"errors\": [\n    {\n      \"message\": \"Field x does not exist\",\n      \"extensions\": {\n        \"code\": \"undefinedField\"\n      }\n    }\n  ]\n}",
+    "details": {
+      "errors": [
+        {
+          "message": "Field x does not exist",
+          "extensions": {
+            "code": "undefinedField"
+          }
+        }
+      ]
+    }
+  }
+}

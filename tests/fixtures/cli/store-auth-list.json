@@ -1,0 +1,44 @@
+{
+  "sessions": [
+    {
+      "subdomain": "alpha",
+      "connected": "Nov 07, 2026",
+      "store": "alpha.myshopify.com",
+      "userId": "1",
+      "scopes": [
+        "read_reports",
+        "read_orders"
+      ]
+    },
+    {
+      "subdomain": "beta",
+      "connected": "Nov 07, 2026",
+      "store": "beta.myshopify.com",
+      "userId": "1",
+      "scopes": [
+        "read_reports",
+        "read_orders",
+        "read_customers"
+      ]
+    },
+    {
+      "subdomain": "omega",
+      "connected": "Nov 07, 2026",
+      "store": "omega.myshopify.com",
+      "userId": "1",
+      "scopes": [
+        "read_orders"
+      ]
+    },
+    {
+      "subdomain": "evil",
+      "connected": "Nov 07, 2026",
+      "store": "evil.myshopify.com.attacker.tld",
+      "userId": "1",
+      "scopes": [
+        "read_reports",
+        "read_orders"
+      ]
+    }
+  ]
+}

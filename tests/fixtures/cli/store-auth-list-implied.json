@@ -1,0 +1,24 @@
+{
+  "sessions": [
+    {
+      "subdomain": "kappa",
+      "connected": "Nov 07, 2026",
+      "store": "kappa.myshopify.com",
+      "userId": "1",
+      "scopes": [
+        "write_orders",
+        "read_reports"
+      ]
+    },
+    {
+      "subdomain": "lambda",
+      "connected": "Nov 07, 2026",
+      "store": "lambda.myshopify.com",
+      "userId": "1",
+      "scopes": [
+        "write_products",
+        "read_reports"
+      ]
+    }
+  ]
+}

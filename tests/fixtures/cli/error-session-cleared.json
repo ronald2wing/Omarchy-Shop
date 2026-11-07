@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "We've cleared the current session because the current access token is invalid or has expired.",
+    "tryMessage": "Please run the command again to log in."
+  }
+}

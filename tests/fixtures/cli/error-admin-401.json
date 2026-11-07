@@ -1,0 +1,6 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "The Admin GraphQL API responded unsuccessfully with the HTTP status 401.\n\nRequest ID: 3b0c9f1e-6d2a-4e8b-9f10-7a5c2d4e6f80"
+  }
+}

@@ -1,0 +1,35 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: inspects a theme folder's shape and safety (local only: no child processes, no git).
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module InspectFolder
+      NAME = 'inspect-folder'
+      USAGE = <<~TEXT
+        usage: helpers/inspect-folder --folder=<absolute path>
+
+        Prints {"ok":true,"exists","themeShaped","empty","safe","reason","rootFiles"}.
+        themeShaped needs config/, layout/ and templates/ as directories (what
+        the pinned CLI's theme push/dev require under --no-input).
+        rootFiles lists AGENTS.md / DESIGN.md when present at the top level
+        (the pinned CLI pushes and pulls them with the theme).
+        reason is one of root, home, plugin, state, config, not_owned,
+        world_writable, group_writable, not_absolute, not_directory, theme_toml, symlink,
+        hardlink, special_file, unreadable, too_many_files, unsafe_parent (or null).
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[folder], required: %w[folder], prepare: false) do |options|
+          report = ThemeFolder.report(ThemeFolder.path!(options['folder']))
+          { 'ok' => true }.merge(report.slice('exists', 'themeShaped', 'empty', 'safe', 'reason', 'rootFiles'))
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::InspectFolder.run(ARGV) if $PROGRAM_NAME == __FILE__

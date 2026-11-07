@@ -1,0 +1,11 @@
+#!/usr/bin/ruby --disable-gems
+# Test double for notify-send, pw-play and paplay (tests link it under the tool name in the throwaway HOME): logs argv and env keys to $HOME/.fake-tools/<name>.jsonl; a name ending in -fail exits 1.
+
+require 'json'
+dir = File.join(ENV.fetch('HOME'), '.fake-tools')
+Dir.mkdir(dir) unless Dir.exist?(dir)
+name = File.basename($PROGRAM_NAME)
+File.open(File.join(dir, "#{name}.jsonl"), 'a') do |f|
+  f.puts(JSON.generate({ 'argv' => ARGV, 'env' => ENV.keys.sort }))
+end
+exit 1 if name.end_with?('-fail')

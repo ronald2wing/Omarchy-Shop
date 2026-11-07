@@ -1,0 +1,6 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "The BusinessPlatform GraphQL API responded unsuccessfully with the HTTP status 401.\n\nRequest ID: 7d1f3c2a-1b9e-4f0a-9c55-2e6f8a1d4b70"
+  }
+}

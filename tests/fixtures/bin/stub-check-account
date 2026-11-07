@@ -1,0 +1,11 @@
+#!/usr/bin/ruby --disable-gems
+# Helper double for tests/qml/model_doubles_smoke.qml: check-account times out on its first run (no CLI answer at all), then reports a found CLI and a signed-in account; the count lives in $HOME/.stub-check-account.
+
+counter = File.join(ENV.fetch('HOME'), '.stub-check-account')
+runs = File.read(counter).to_i + 1 rescue 1
+File.write(counter, runs.to_s)
+if runs == 1
+  puts '{"ok":false,"error":{"code":"timeout","message":"check-account took too long"}}'
+  exit 124
+end
+puts '{"ok":true,"cli":{"found":true,"missing":null,"installs":"/x/installs"},"account":{"status":"signed_in","error":null}}'

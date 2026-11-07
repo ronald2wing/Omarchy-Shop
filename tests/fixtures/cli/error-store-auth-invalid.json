@@ -1,0 +1,9 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "Stored app authentication for alpha.myshopify.com is no longer valid.",
+    "nextSteps": [
+      "Run shopify store auth --store alpha.myshopify.com --scopes <comma-separated-scopes> to re-authenticate"
+    ]
+  }
+}

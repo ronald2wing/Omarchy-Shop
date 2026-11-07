@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "An organization ID is required to list stores non-interactively.",
+    "tryMessage": "Provide `--organization-id`, for example `--organization-id 1234567`. Run `shopify organization list` to find IDs."
+  }
+}

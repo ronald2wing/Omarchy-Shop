@@ -1,0 +1,9 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "Token refresh failed for alpha.myshopify.com (HTTP 401).",
+    "nextSteps": [
+      "Run shopify store auth --store alpha.myshopify.com --scopes <comma-separated-scopes> to re-authenticate"
+    ]
+  }
+}

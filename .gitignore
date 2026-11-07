@@ -1,2 +1,60 @@
-state/
-*.qmlc
+# tests/ruby/contracts/test_payload.rb reads the next block (its header
+# line, then one pattern per line up to the next comment line) and fails if
+# a matching file is tracked, archived or not ignored. Keep it in that shape.
+
+# Agent steering files: local only, never shipped; every pattern matches at any depth (the .github/ ones through **/).
+AGENTS.md
+AGENTS.override.md
+AGENT.md
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+QWEN.md
+CRUSH.md
+.mcp.json
+.agents/
+.claude/
+.codex/
+.gemini/
+.qwen/
+.crush/
+.cursor/
+.cursorrules
+.windsurf/
+.windsurfrules
+.clinerules
+.roo/
+.kiro/
+.kilocode/
+.junie/
+.continue/
+.amazonq/
+.augment/
+.trae/
+.opencode/
+.pi/
+.aider*
+**/.github/copilot-instructions.md
+**/.github/instructions/
+**/.github/prompts/
+**/.github/chatmodes/
+
+# Local tool config: mise files (a `mise use` here writes mise.toml) and
+# Qt's per-checkout settings (tests/run lints with --ignore-settings).
+mise.toml
+mise.local.toml
+.mise.toml
+.mise.local.toml
+.tool-versions
+.qmllint.ini
+.qmlls.ini
+
+# Editors.
+.idea/
+.vscode/
+.zed/
+.nvim.lua
+.exrc
+*.swp
+*.swo
+*~

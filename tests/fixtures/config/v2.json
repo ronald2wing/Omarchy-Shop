@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "pollSeconds": 60,
+  "alerts": { "notify": true, "sound": true },
+  "bar": { "display": "stores" },
+  "stores": [
+    { "domain": "acme.myshopify.com", "label": "Acme Apparel", "showInBar": true,
+      "theme": { "folder": "/home/me/themes/acme", "target": "live", "allowLive": false } },
+    { "domain": "beta.myshopify.com", "label": "Beta Goods", "showInBar": false, "theme": null },
+    { "label": "No domain" },
+    { "domain": "acme.myshopify.com", "label": "Duplicate" }
+  ],
+  "myNote": "kept"
+}

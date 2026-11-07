@@ -1,0 +1,22 @@
+{
+  "themes": [
+    {
+      "id": "160258293983",
+      "name": "Dawn",
+      "role": "live",
+      "processing": false
+    },
+    {
+      "id": "160258294001",
+      "name": "Dawn copy",
+      "role": "unpublished",
+      "processing": false
+    },
+    {
+      "id": "160258294002",
+      "name": "Dev (alice)",
+      "role": "development",
+      "processing": false
+    }
+  ]
+}

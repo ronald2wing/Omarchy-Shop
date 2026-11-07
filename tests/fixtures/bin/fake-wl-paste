@@ -1,0 +1,23 @@
+#!/usr/bin/ruby --disable-gems
+# Test double for wl-paste: logs argv and env keys to $HOME/.fake-tools/wl-paste.jsonl, then answers per $HOME/.fake-clipboard: absent = empty clipboard (exit 1); "endless" = never stops sending; "hang" = never answers; else its bytes verbatim.
+
+require 'json'
+home = ENV.fetch('HOME')
+dir = File.join(home, '.fake-tools')
+Dir.mkdir(dir) unless Dir.exist?(dir)
+File.open(File.join(dir, 'wl-paste.jsonl'), 'a') { |f| f.puts(JSON.generate({ 'argv' => ARGV, 'env' => ENV.keys.sort })) }
+source = File.join(home, '.fake-clipboard')
+unless File.file?(source)
+  warn 'Nothing is copied'
+  exit 1
+end
+content = File.binread(source)
+case content
+when 'endless'
+  chunk = 'x' * 4096
+  loop { $stdout.write(chunk) }
+when 'hang'
+  sleep
+else
+  $stdout.write(content)
+end

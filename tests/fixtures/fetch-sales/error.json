@@ -1,0 +1,1 @@
+{"ok":false,"error":{"code":"sales_access_required","message":"Sales access needed"},"details":["store auth: missing read_reports"]}

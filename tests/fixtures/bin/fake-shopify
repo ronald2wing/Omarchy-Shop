@@ -1,0 +1,361 @@
+#!/usr/bin/ruby --disable-gems
+# Test double for the pinned @shopify/cli run.js: canned CLI-shaped output per command, scenarios from $HOME/.fake-shopify/scenario.
+
+require 'json'
+require 'fileutils'
+require 'socket'
+
+HOME = ENV.fetch('HOME')
+STATE = File.join(HOME, '.fake-shopify')
+FIXTURES = File.expand_path('../cli', File.dirname(File.realpath(__FILE__)))
+FileUtils.mkdir_p(STATE)
+SCENARIOS = (File.read(File.join(STATE, 'scenario')).strip.split(',') rescue ['ok'])
+
+def scenario?(name) = SCENARIOS.include?(name)
+
+def scenario_arg(prefix)
+  SCENARIOS.find { |s| s.start_with?("#{prefix}:") }&.split(':', 2)&.last
+end
+
+FORBIDDEN_ENV = /\A(?:NODE_OPTIONS|NODE_PATH|NODE_TLS_REJECT_UNAUTHORIZED|SHOPIFY_FLAG_.*|SHOPIFY_CLI_.*TOKEN.*|SHOPIFY_CLI_FORCE_AUTO_UPGRADE|RUBY.*|GEM_.*|BUNDLE_.*|MISE_.*|LEAK_.*)\z/
+
+leaked = ENV.keys.select do |k|
+  k.match?(FORBIDDEN_ENV) || (k.start_with?('npm_config_') && !%w[npm_config_dry_run npm_config_update_notifier].include?(k))
+end
+File.open(File.join(STATE, 'log.jsonl'), 'a') do |f|
+  f.puts(JSON.generate({ 'argv' => ARGV, 'cwd' => Dir.pwd, 'pid' => Process.pid,
+                         'env' => %w[CI npm_config_dry_run].to_h { |k| [k, ENV[k]] }, 'leaked' => leaked }))
+end
+
+COMMAND = ARGV.take_while { |a| !a.start_with?('-') }
+FLAGS = ARGV.drop(COMMAND.size).each_with_object({}) do |a, h|
+  k, v = a.sub(/\A--?/, '').split('=', 2)
+  h[k] = v.nil? ? true : v
+end
+
+def fixture(name) = File.read(File.join(FIXTURES, name))
+def fixture_json(name) = JSON.parse(fixture(name))
+
+# The theme list; 'copy-published' swaps the roles (Dawn copy is live), as
+# after someone publishes it in the admin.
+def theme_list
+  list = fixture_json('theme-list.json')
+  return list unless scenario?('copy-published')
+
+  roles = { '160258293983' => 'unpublished', '160258294001' => 'live' }
+  list['themes'].each { |t| t['role'] = roles.fetch(t['id'], t['role']) }
+  list
+end
+
+def out(obj)
+  $stdout.write(obj.is_a?(String) ? obj : JSON.pretty_generate(obj))
+  $stdout.write("\n")
+  $stdout.flush
+end
+
+def progress(message)
+  $stderr.puts(JSON.generate({ 'type' => 'progress', 'status' => 'updated', 'message' => message }))
+end
+
+def fail_with(name)
+  progress('Executing')
+  out(fixture(name))
+  $stderr.puts('fake-shopify: failing as requested')
+  exit 1
+end
+
+def record_pid(extra = {})
+  File.open(File.join(STATE, 'pids'), 'a') { |f| f.puts(JSON.generate({ 'pid' => Process.pid }.merge(extra))) }
+end
+
+# Like the real CLI's auto-upgrade (aq()/oq() in the pinned version): the package manager
+# is picked by substring of the run.js path and its realpath (yarn, pnpm,
+# bun, else npm), then `<pm> install -g @shopify/cli@latest` runs from PATH.
+# Shop must leave no npm on PATH (and sets npm_config_dry_run, which only
+# npm honours), and must refuse interactive calls on a yarn/pnpm/bun path.
+def auto_upgrade!
+  paths = [$PROGRAM_NAME, (File.realpath($PROGRAM_NAME) rescue $PROGRAM_NAME)].map(&:downcase)
+  pm = %w[yarn pnpm bun].find { |m| paths.any? { |p| p.include?(m) } } || 'npm'
+  bin = ENV['PATH'].to_s.split(':').map { |d| File.join(d, pm) }.find { |p| File.executable?(p) }
+  File.open(File.join(STATE, 'upgrade.jsonl'), 'a') do |f|
+    f.puts(JSON.generate({ 'npm' => pm == 'npm' ? bin : nil, 'dry_run' => ENV['npm_config_dry_run'], 'ci' => ENV['CI'] }))
+  end
+  system(bin, 'install', '-g', '@shopify/cli@latest') if bin
+end
+
+# ---- generic behaviours ----
+
+# No network: the session probe (store list) fails the way Node does offline.
+if scenario?('network-down') && COMMAND == %w[store list]
+  $stderr.puts('Error: getaddrinfo ENOTFOUND accounts.shopify.com')
+  exit 1
+end
+
+if scenario?('flood')
+  chunk = 'x' * 65_536
+  loop { $stdout.write(chunk) }
+end
+if scenario?('hang')
+  record_pid
+  sleep
+end
+# hang-on:<theme subcommand>: only that call hangs (hang-on:pull lets the
+# theme list through and hangs the pull).
+if ARGV[0] == 'theme' && scenario_arg('hang-on') == ARGV[1]
+  record_pid
+  sleep
+end
+if scenario?('hang-with-grandchild')
+  child = Process.spawn('/usr/bin/sleep', '1000')
+  record_pid('child' => child)
+  sleep
+end
+sleep 1.5 if scenario?('slow-ok')
+# slow-store-list: the account listing alone is slow, so a discovery started
+# during a sign-out reports after the sign-out has settled.
+sleep 3 if scenario?('slow-store-list') && COMMAND == %w[store list]
+
+# Failures every theme command shares: the theme session's Admin 401, a
+# store the account may not develop in, a paused store, a server error.
+def theme_failures!
+  fail_with('error-admin-401.json') if scenario?('admin-401-theme')
+  fail_with('error-not-staff.json') if scenario?('not-staff')
+  fail_with('error-store-unavailable.json') if scenario?('paused')
+  fail_with('error-server-error.json') if scenario?('server-error')
+  fail_with('error-throttled.json') if scenario?('throttled')
+end
+
+# ---- commands ----
+
+case COMMAND
+when ['version']
+  # The version of the package this run.js link belongs to (the layouts the
+  # tests build write it from the pin), so no literal version lives here.
+  puts JSON.parse(File.read(File.join(File.dirname($PROGRAM_NAME), '..', 'package.json')))['version']
+when %w[auth login]
+  auto_upgrade! if scenario?('auto-upgrade')
+  # The pinned CLI with any session stored (an expired one included) asks which
+  # account to use; the prompt fails without a TTY.
+  if scenario?('stale-session')
+    out({ 'error' => { 'type' => 'abort', 'message' => 'Failed to prompt: Which account would you like to use?' } })
+    exit 1
+  end
+  File.write(File.join(STATE, 'scenario'), (SCENARIOS - %w[logged-out session-expired session-cleared]).join(',')) unless scenario?('login-fails')
+  if scenario?('login-fails')
+    out({ 'error' => { 'type' => 'abort', 'message' => 'Login was cancelled.' } })
+    exit 1
+  end
+  puts 'Logged in.'
+when %w[auth logout]
+  File.write(File.join(STATE, 'scenario'), (SCENARIOS - ['stale-session']).join(','))
+  out({ 'status' => 'success' })
+when %w[store auth]
+  auto_upgrade! if scenario?('auto-upgrade')
+  # The pinned CLI refuses a grant narrower than asked before storing anything
+  # (and a cancelled browser flow fails the same way): an older session
+  # for the store stays as it was.
+  if scenario?('store-auth-fails')
+    out({ 'error' => { 'type' => 'abort', 'message' => 'Shopify granted fewer scopes than were requested.' } })
+    exit 1
+  end
+  File.write(File.join(STATE, 'scenario'), (SCENARIOS - ['store-not-authed']).join(','))
+  puts "Authenticated #{FLAGS['store']}"
+when %w[store auth list]
+  # auth-list-implied: sessions whose read scope comes from a write scope
+  # (the pinned CLI's merged grant stores write_orders without read_orders).
+  out(fixture(scenario?('auth-list-implied') ? 'store-auth-list-implied.json' : 'store-auth-list.json'))
+when %w[store list]
+  if (org = FLAGS['organization-id'])
+    fail_with('error-org-failed.json') if scenario_arg('org-fails') == org
+    if scenario_arg('org-hangs') == org
+      record_pid
+      sleep
+    end
+    stores = fixture_json('org-stores.json').fetch(org, [])
+    out({ 'stores' => stores, 'organization' => { 'id' => org, 'name' => "Org #{org}" } })
+  elsif scenario?('logged-out')
+    fail_with('error-logged-out.json')
+  elsif scenario?('logged-out-ci')
+    fail_with('error-logged-out-ci.json')
+  elsif scenario?('session-expired')
+    fail_with('error-business-platform-401.json')
+  elsif scenario?('multi-org')
+    fail_with('error-multi-org.json')
+  elsif scenario?('session-cleared')
+    fail_with('error-session-cleared.json')
+  elsif scenario?('store-list-notice')
+    out(fixture('store-list-notice.json'))
+  elsif scenario?('store-list-truncated')
+    out(fixture('store-list-truncated.json'))
+  else
+    out(fixture('store-list.json'))
+  end
+when %w[organization list]
+  out(fixture('organization-list.json'))
+when %w[store execute]
+  fail_with('error-not-authed.json') if scenario?('store-not-authed')
+  fail_with('error-store-auth-invalid.json') if scenario?('store-auth-invalid')
+  fail_with('error-token-refresh.json') if scenario?('token-refresh-failed')
+  fail_with('error-no-refresh-token.json') if scenario?('no-refresh-token')
+  fail_with('error-logged-out-ci.json') if scenario?('logged-out-ci')
+  fail_with('error-scope.json') if scenario?('scope-denied')
+  fail_with('error-throttled.json') if scenario?('throttled')
+  fail_with('error-session-cleared.json') if scenario?('session-cleared')
+  fail_with('error-store-unavailable.json') if scenario?('paused')
+  fail_with('error-server-error.json') if scenario?('server-error')
+  # A non-theme call: the Admin 401 is about the store, not the theme session.
+  fail_with('error-admin-401.json') if scenario?('admin-401-execute')
+  if scenario?('bad-json')
+    out('not json {')
+    exit 0
+  end
+  query = FLAGS['query'].to_s
+  vars = FLAGS['variables'] ? JSON.parse(FLAGS['variables']) : {}
+  op = query[/\Aquery (\w+)/, 1]
+  File.open(File.join(STATE, 'queries.jsonl'), 'a') { |f| f.puts(JSON.generate({ 'op' => op, 'vars' => vars, 'store' => FLAGS['store'] })) }
+  case op
+  when 'ShopName'
+    name = fixture_json('shop-names.json').fetch(FLAGS['store'], 'Some Shop')
+    if scenario?('invalid-utf8')
+      $stdout.write(+'{"data":{"shop":{"name":"Caf' << "\xFF".b << ' \\u001b[31mShop\\u0007"}}}' << "\n")
+      exit 0
+    end
+    out({ 'data' => { 'shop' => { 'name' => name } } })
+  when 'ShopMeta'
+    out(fixture('shop-meta.json'))
+  when 'Today', 'TodayTraffic'
+    body = fixture_json('today.json')
+    if op == 'Today'
+      body['data'].delete('traffic')
+      body['data'].delete('trafficHourly')
+    end
+    if scenario?('hourly-unsupported') && body['data']['traffic']
+      body['data']['traffic'] = { 'tableData' => nil, 'parseErrors' => ['Unsupported: sessions'] }
+      body['data']['trafficHourly'] = { 'tableData' => nil, 'parseErrors' => ['Unsupported: hour'] }
+    end
+    if scenario?('paginated') || scenario?('paginated-endless') || scenario?('throttle-page-2')
+      body['data']['page']['pageInfo'] = { 'hasNextPage' => true, 'endCursor' => 'c1' }
+    end
+    # wrong-shape:<field>: valid JSON of the wrong shape (a string where an
+    # object belongs); wrong-shape:node / wrong-shape:price break one order.
+    case (field = scenario_arg('wrong-shape'))
+    when nil then nil
+    when 'node' then body['data']['page']['nodes'][0] = true
+    when 'price' then body['data']['page']['nodes'][0]['totalPriceSet'] = 5
+    else body['data'][field] = 'x'
+    end
+    out(body)
+  when 'OrdersPage'
+    # page-sleep:<s> makes every later page slow (the pinned CLI takes 5-7 s each).
+    sleep(scenario_arg('page-sleep').to_f) if scenario_arg('page-sleep')
+    n = vars['after'].to_s.delete_prefix('c').to_i
+    # throttle-page-2: the second page is rate limited (page 1 said there was more).
+    fail_with('error-throttled.json') if scenario?('throttle-page-2') && n == 1
+    more = scenario?('paginated-endless') || n < 2
+    # Every order node carries createdAt (the hourly charts bin by it); a
+    # filter with an upper bound is yesterday's.
+    day = vars['filter'].to_s.include?('created_at:<') ? '2026-11-06' : '2026-11-07'
+    nodes = Array.new(250) do |i|
+      { 'createdAt' => format('%sT%02d:%02d:00Z', day, 10 + (i / 60), i % 60), 'totalPriceSet' => { 'shopMoney' => { 'amount' => '1.00' } } }
+    end
+    out({ 'data' => { 'page' => { 'nodes' => nodes, 'pageInfo' => { 'hasNextPage' => more, 'endCursor' => more ? "c#{n + 1}" : nil } } },
+          'extensions' => { 'cost' => { 'requestedQueryCost' => 10, 'actualQueryCost' => 5,
+                                        'throttleStatus' => { 'maximumAvailable' => 2000, 'currentlyAvailable' => 1990, 'restoreRate' => 100 } } } })
+  when 'Yesterday'
+    body = fixture_json('yesterday.json')
+    body['data']['trafficHourly'] = { 'tableData' => nil, 'parseErrors' => ['Unsupported: hour'] } if scenario?('hourly-unsupported')
+    body['data']['salesHourly'] = { 'tableData' => nil, 'parseErrors' => ['Unsupported: hour'] } if scenario?('sales-hourly-unsupported')
+    body['data']['page']['pageInfo'] = { 'hasNextPage' => true, 'endCursor' => 'c1' } if scenario?('paginated')
+    out(body)
+  when 'History'
+    body = fixture_json('history.json')
+    body['data']['sessionsDaily'] = { 'tableData' => nil, 'parseErrors' => ['Column Not Found'] } if scenario?('periods-parse-error')
+    out(body)
+  else
+    fail_with('error-graphql.json')
+  end
+when %w[theme list]
+  theme_failures!
+  out(theme_list)
+when %w[theme pull]
+  theme_failures!
+  fail_with('error-pull-failed.json') if scenario?('pull-fails')
+  dir = FLAGS['path']
+  # The pinned CLI refuses a pull into a git working tree with uncommitted
+  # or untracked changes (and into a non-theme-shaped non-empty folder)
+  # unless --force; under --no-input the prompt throws instead of asking.
+  # A `.git` dir in the target stands for such a checkout here.
+  dirty_git = dir && File.directory?(File.join(dir, '.git'))
+  fail_with('error-pull-dirty-git.json') if dirty_git && FLAGS['force'] != true
+  progress('Downloading files from remote theme [0%]')
+  # The pinned CLI's pull result is {status: "success", changed, directory,
+  # theme} (or {status: "skipped", reason}); it has no "partial" status and
+  # no issues. A file that fails to download throws mid-pull: the CLI prints
+  # its error JSON and exits 1, leaving the files written so far.
+  # pull-aborts does that after the first file.
+  { 'layout/theme.liquid' => '<html>{{ content_for_layout }}</html>', 'templates/index.json' => '{}',
+    'config/settings_schema.json' => '[]', 'sections/header.liquid' => 'header' }.each_with_index do |(rel, body), i|
+    fail_with('error-pull-download.json') if scenario?('pull-aborts') && i == 1
+    FileUtils.mkdir_p(File.join(dir, File.dirname(rel)))
+    File.write(File.join(dir, rel), body)
+  end
+  File.symlink('/etc/hostname', File.join(dir, 'sections', 'escape.liquid')) if scenario?('pull-symlink')
+  theme = theme_list['themes'].find { |t| t['id'] == FLAGS['theme'] } || { 'id' => FLAGS['theme'], 'name' => 'X', 'role' => 'unpublished' }
+  out({ 'status' => 'success', 'changed' => true, 'directory' => dir,
+        'theme' => theme.merge('storeDomain' => FLAGS['store'], 'previewUrl' => "https://#{FLAGS['store']}",
+                               'editorUrl' => "https://#{FLAGS['store']}/admin/themes/#{FLAGS['theme']}/editor",
+                               'processing' => false, 'sourceUrl' => nil) })
+when %w[theme push]
+  theme_failures!
+  fail_with('error-push-failed.json') if scenario?('push-fails')
+  if scenario?('push-login-liquid')
+    $stderr.puts(JSON.generate({ 'type' => 'progress', 'message' => 'Uploading templates/customers/login.liquid' }))
+    fail_with('error-push-login-liquid.json')
+  end
+  theme = theme_list['themes'].find { |t| t['id'] == FLAGS['theme'] } || { 'id' => FLAGS['theme'], 'name' => 'X', 'role' => 'unpublished' }
+  if scenario?('push-skipped')
+    # The pinned CLI's push result is a .strict() union: {status, changed, theme,
+    # issues} or {status: "skipped", reason: "unsafe-directory"} (exit 0),
+    # printed only when it refuses the directory. A push that uploads
+    # nothing is "success" with changed: false (push-unchanged).
+    out({ 'status' => 'skipped', 'reason' => 'unsafe-directory' })
+    exit 0
+  end
+  issues = []
+  if scenario?('push-partial')
+    issues << { 'filePath' => File.join(FLAGS['path'], 'sections/header.liquid'), 'message' => 'Liquid syntax error' }
+  end
+  out({ 'status' => issues.empty? ? 'success' : 'partial', 'changed' => !scenario?('push-unchanged'),
+        'theme' => theme.merge('storeDomain' => FLAGS['store'], 'editorUrl' => nil, 'previewUrl' => nil),
+        'issues' => issues })
+  # Like the pinned CLI: a push with rejected files still prints the result, then exits 1.
+  exit 1 unless issues.empty?
+when %w[theme dev]
+  theme_failures!
+  port = FLAGS['port'].to_i
+  if scenario?('foreign-listener')
+    # Another process group owns the port: Shop must never call it ready.
+    pid = Process.spawn('/usr/bin/ruby', '--disable-gems', '-rsocket', '-e',
+                        "s = TCPServer.new('127.0.0.1', #{port}); loop { (s.accept.close rescue nil) }",
+                        pgroup: true)
+    record_pid('foreign' => pid)
+    sleep
+  elsif scenario?('dev-exits')
+    progress('starting')
+    $stderr.puts('Error: development theme could not be created')
+    exit 1
+  else
+    server = TCPServer.new('127.0.0.1', port)
+    record_pid
+    puts "Serving on http://127.0.0.1:#{port}"
+    $stdout.flush
+    trap('TERM') { exit 0 }
+    loop do
+      client = server.accept
+      client.close
+    end
+  end
+else
+  out({ 'error' => { 'type' => 'abort', 'message' => "Command #{COMMAND.join(' ')} not found." } })
+  exit 1
+end

@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "Theme download failed.",
+    "tryMessage": "Check your network and try again."
+  }
+}

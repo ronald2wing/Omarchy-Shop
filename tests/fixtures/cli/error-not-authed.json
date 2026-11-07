@@ -1,0 +1,9 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "No stored app authentication found for alpha.myshopify.com.",
+    "nextSteps": [
+      "Run shopify store auth --store alpha.myshopify.com --scopes <comma-separated-scopes> to authenticate"
+    ]
+  }
+}

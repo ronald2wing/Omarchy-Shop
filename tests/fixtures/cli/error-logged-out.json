@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "You are not logged in to Shopify.",
+    "tryMessage": "Run `shopify auth login` to log in."
+  }
+}

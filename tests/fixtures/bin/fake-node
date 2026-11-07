@@ -1,0 +1,4 @@
+#!/usr/bin/ruby --disable-gems
+# Test double for the pinned node: runs its first argument (the fake run.js) with the system ruby, keeping the pid.
+
+exec('/usr/bin/ruby', '--disable-gems', *ARGV)
