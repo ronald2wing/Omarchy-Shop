@@ -1,0 +1,40 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: reports the pinned Shopify CLI runtime and the account session as one JSON line.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module CheckAccount
+      NAME = 'check-account'
+      USAGE = <<~TEXT
+        usage: helpers/check-account [--help]
+
+        Resolve the pinned runtime (Node #{NODE_PIN}, @shopify/cli #{CLI_PIN} under
+        mise's installs dir) and probe the account session with
+        `store list --json` (CI). Prints
+        {"ok":true,"cli":{found,missing,installs},
+         "account":{"status":"signed_in|signed_out|unknown","error":{code,message}|null}}.
+        A missing runtime is still exit 0 (cli.found false, account unknown);
+        so is a session probe that timed out (account unknown, error timeout).
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE) do |_options, overall|
+          cli = Runtime.status
+          # A found CLI stays found when the session probe is slow: a `store
+          # list` timeout is an unknown account (error timeout), not a failed
+          # status, so Shop still treats the CLI as ready and sales start (each
+          # store reports its own errors).
+          probe = -> { Account.probe(Runtime.locate, deadline: overall.cap(Shop.seconds(:call, NAME))) }
+          account = cli['found'] ? Account.object(*probe.call) : Account.object('unknown')
+          { 'ok' => true, 'cli' => cli, 'account' => account }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::CheckAccount.run(ARGV) if $PROGRAM_NAME == __FILE__

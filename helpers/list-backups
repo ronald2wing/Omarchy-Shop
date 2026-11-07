@@ -1,0 +1,34 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: lists a store's theme backups and local folder copies, newest first (read-only, no lock).
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module ListBackups
+      NAME = 'list-backups'
+      # The most backups, and folder copies, listed (retention keeps fewer;
+      # this bounds a folder someone filled by hand).
+      LIST_MAX = 50
+      USAGE = <<~TEXT
+        usage: helpers/list-backups --store=<domain>
+
+        Prints {"ok":true,"backups":[{id,at,theme{id,name,role},before,files,bytes}],
+        "folderCopies":[{id,at,files,bytes,path}]}, newest first, at most #{LIST_MAX} each.
+        `before` is what the backup was taken ahead of: push or restore.
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[store], required: %w[store], prepare: false) do |options|
+          domain = Validate.domain!(options['store'])
+          { 'ok' => true, 'backups' => Backups.completed(domain).first(LIST_MAX),
+            'folderCopies' => FolderCopies.list(domain).first(LIST_MAX) }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::ListBackups.run(ARGV) if $PROGRAM_NAME == __FILE__

@@ -1,0 +1,50 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: pulls a theme into a theme folder after copying what the pull can overwrite; always --nodelete.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module PullTheme
+      NAME = 'pull-theme'
+      USAGE = <<~TEXT
+        usage: helpers/pull-theme --store=<domain> --folder=<folder> --target=live|<id>
+
+        Copies the folder's theme dirs to backups/<domain>/local/ when the
+        folder is not empty, then `theme pull --nodelete`. Every line carries
+        "writeStarted" (false: nothing in the folder was touched; true: the
+        CLI pull had begun); a failed pull also carries "folderCopy" (the
+        copy's id, or null).
+        Result warnings are objects: {"kind":"symlink"|"hardlink","path"} for a
+        link the pull left behind.
+        Folders with a shopify.theme.toml (in the folder or any parent),
+        symlinks, hardlinked files, special files or over #{TreeWalk::MAX_ENTRIES}
+        entries are refused. One theme action per store at a time (a running preview counts).
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[store folder target], required: %w[store folder target],
+                                         line_fields: { 'writeStarted' => false, 'folderCopy' => nil }) do |options|
+          pull(Validate.domain!(options['store']), options['folder'], Validate.target!(options['target']))
+        end
+      end
+
+      def pull(domain, folder, target)
+        report = ThemeFolder.check!(folder, mode: :pull)
+        ThemeJob.run(domain, helper: NAME) do |job|
+          theme = job.target!(target)
+          copy, path = job.pull_with_copy!(theme, report) { ThemeFolder.check!(folder, mode: :pull)['folder'] }
+          # The pull writes what the theme holds, links included: report any
+          # it left behind.
+          after = ThemeFolder.report(path)
+          warnings = TreeWalk::LINK_REASONS.include?(after['reason']) ? [{ 'kind' => after['reason'], 'path' => after['at'].to_s }] : []
+          { 'ok' => true, 'theme' => theme, 'folder' => path, 'folderCopy' => copy, 'warnings' => warnings }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::PullTheme.run(ARGV) if $PROGRAM_NAME == __FILE__

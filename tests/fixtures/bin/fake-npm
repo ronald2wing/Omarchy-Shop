@@ -1,0 +1,7 @@
+#!/usr/bin/ruby --disable-gems
+# Auto-upgrade canary: any invocation is logged to $HOME/.fake-npm.log; it never installs anything.
+
+require 'json'
+File.open(File.join(ENV.fetch('HOME'), '.fake-npm.log'), 'a') do |f|
+  f.puts(JSON.generate({ 'argv' => ARGV }))
+end

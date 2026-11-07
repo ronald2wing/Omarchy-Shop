@@ -1,0 +1,58 @@
+#!/usr/bin/ruby --disable-gems
+# Test double for /usr/bin/mise: `install` builds the pinned trees from the fixtures, `exec` runs its command, `use` exits 99.
+
+require 'json'
+require 'fileutils'
+
+HOME = ENV.fetch('HOME')
+BIN = File.dirname(File.realpath(__FILE__))
+LOGDIR = File.join(HOME, '.fake-mise')
+FileUtils.mkdir_p(LOGDIR)
+scenario = File.read(File.join(LOGDIR, 'scenario')).strip rescue 'ok'
+File.open(File.join(LOGDIR, 'log.jsonl'), 'a') do |f|
+  env = ENV.to_h.select { |k, _| k.start_with?('npm_config_', 'MISE_') || k == 'CI' }
+  f.puts(JSON.generate({ 'argv' => ARGV, 'env' => env }))
+end
+
+data = ENV['MISE_DATA_DIR'] || File.join(HOME, '.local', 'share', 'mise')
+installs = File.join(data, 'installs')
+
+case ARGV[0]
+when 'use'
+  warn 'fake-mise: use is forbidden in tests'
+  exit 99
+when 'install'
+  tool = ARGV[1].to_s
+  if ARGV.include?('-g') || ARGV.include?('--global')
+    warn 'fake-mise: -g is forbidden'
+    exit 98
+  end
+  if scenario == "fail:#{tool}"
+    warn "mise ERROR failed to install #{tool}"
+    exit 1
+  end
+  case tool
+  when /\Anode@(.+)\z/
+    dir = File.join(installs, 'node', Regexp.last_match(1), 'bin')
+    FileUtils.mkdir_p(dir)
+    FileUtils.ln_sf(File.join(BIN, 'fake-node'), File.join(dir, 'node'))
+    FileUtils.ln_sf(File.join(BIN, 'fake-npm'), File.join(dir, 'npm'))
+  when %r{\Anpm:@shopify/cli@(.+)\z}
+    version = Regexp.last_match(1)
+    pkg = File.join(installs, 'npm-shopify-cli', version, 'node_modules', '.mise', "@shopify+cli@#{version}",
+                    'node_modules', '@shopify', 'cli')
+    FileUtils.mkdir_p(File.join(pkg, 'bin'))
+    FileUtils.ln_sf(File.join(BIN, 'fake-shopify'), File.join(pkg, 'bin', 'run.js'))
+    File.write(File.join(pkg, 'package.json'), JSON.generate({ 'name' => '@shopify/cli', 'version' => version }))
+  else
+    warn "fake-mise: unknown tool #{tool}"
+    exit 2
+  end
+  puts "installed #{tool}"
+when 'exec'
+  sep = ARGV.index('--')
+  exit 2 unless sep
+  exec(*ARGV[(sep + 1)..])
+else
+  exit 2
+end

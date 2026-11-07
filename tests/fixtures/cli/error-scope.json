@@ -1,0 +1,17 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "GraphQL operation failed.",
+    "tryMessage": "{\n  \"errors\": [\n    {\n      \"message\": \"Access denied for shopifyqlQuery field. Required access: `read_reports` access scope.\",\n      \"extensions\": {\n        \"code\": \"ACCESS_DENIED\"\n      }\n    }\n  ]\n}",
+    "details": {
+      "errors": [
+        {
+          "message": "Access denied for shopifyqlQuery field. Required access: `read_reports` access scope.",
+          "extensions": {
+            "code": "ACCESS_DENIED"
+          }
+        }
+      ]
+    }
+  }
+}

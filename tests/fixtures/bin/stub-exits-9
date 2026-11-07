@@ -1,0 +1,4 @@
+#!/usr/bin/ruby --disable-gems
+# Helper double for tests/qml/model_doubles_smoke.qml: exits 9 normally, without a result line.
+
+exit 9

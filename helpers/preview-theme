@@ -1,0 +1,144 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: runs a supervised `shopify theme dev` on the development theme (loopback only) under the store lock and streams JSON lines; stdin EOF stops it.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module PreviewTheme
+      NAME = 'preview-theme'
+      USAGE = <<~TEXT
+        usage: helpers/preview-theme --store=<domain> --folder=<folder>
+
+        Starts `theme dev --host=127.0.0.1 --port=<free> --nodelete` on the
+        store's development theme (never the live or a named theme), holding
+        the store's lock for its whole lifetime (push, pull and restore wait).
+        JSON lines:
+          {"event":"ready","url":"http://127.0.0.1:P/"}   the port listens and belongs to the CLI's group
+          {"event":"exited","ok":bool,"error":{…}|null}
+        Stops on stdin EOF, SIGTERM, CLI exit, parent loss, 8 h, no
+        readiness within 120 s, or the folder failing its safety rules (re-checked
+        every 15 s: a new symlink, hardlink or shopify.theme.toml stops it).
+      TEXT
+      PROBE_EVERY = 0.25
+      RING = 64 * KIB
+      # Bytes read from stdin per wakeup: only its EOF matters.
+      STDIN_CHUNK = 4096
+      # theme dev keeps uploading every change for up to 8 h, so the folder
+      # rules are re-checked this often while it runs.
+      RECHECK_EVERY = 15
+      # The last line of a preview that stopped cleanly (stdin EOF or the CLI
+      # exiting 0).
+      EXITED_OK = { 'event' => 'exited', 'ok' => true, 'error' => nil }.freeze
+
+      # The state of one running preview, read and changed by the supervisor
+      # ticks. `stop` is nil while it runs, then :stdin (a clean stop) or the
+      # Failure finish raises.
+      class Session
+        attr_reader :folder, :port
+        attr_accessor :stop
+
+        def initialize(folder, port)
+          @folder = folder
+          @port = port
+          @ready = false
+          @stop = nil
+          @next_probe = 0.0
+          @next_recheck = Deadline.now + Shop.seconds(:recheck, RECHECK_EVERY)
+          @ready_by = Deadline.new(Shop.seconds(:ready, NAME))
+        end
+
+        def ready? = @ready
+
+        # Probe the port every PROBE_EVERY until it is ready (emit the ready
+        # line) or ready_by passes (a timeout stop).
+        def probe(job, now)
+          return if @ready || now < @next_probe
+
+          @next_probe = now + PROBE_EVERY
+          if Ports.ready?(port, job.pgid)
+            @ready = true
+            HelperMain.emit({ 'event' => 'ready', 'url' => "http://127.0.0.1:#{port}/" })
+          elsif @ready_by.expired?
+            self.stop = Failure.new('timeout', 'preview did not become ready in time')
+          end
+        end
+
+        # Every RECHECK_EVERY, the folder rules again (ThemeFolder.check!,
+        # the same check the start passed) and no shopify.theme.toml above
+        # the run dir; the first Failure becomes the stop.
+        def recheck(now)
+          return if now < @next_recheck
+
+          @next_recheck = now + Shop.seconds(:recheck, RECHECK_EVERY)
+          ThemeFolder.check!(folder, mode: :preview)
+          ThemeToml.refuse!(Paths.run_dir)
+        rescue Failure => e
+          raise if e.code == 'terminated'
+
+          self.stop = e
+        end
+      end
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[store folder], required: %w[store folder],
+                                         last_event: 'exited') do |options, overall|
+          domain = Validate.domain!(options['store'])
+          report = ThemeFolder.check!(options['folder'], mode: :preview)
+          located = Runtime.locate
+          Lock.with(domain) { preview(located, domain, report['folder'], overall) }
+        end
+      end
+
+      def dev_args(domain, folder, port)
+        ['theme', 'dev', "--store=#{domain}", "--path=#{folder}", '--host=127.0.0.1', "--port=#{port}",
+         '--nodelete', '--live-reload=hot-reload', '--no-input']
+      end
+
+      def preview(located, domain, folder, overall)
+        port = Ports.free_loopback_port
+        # The port is the one the kernel just handed out; the ready URL is built from it.
+        raise Failure.new('cli_failed', "no usable loopback port (#{port.inspect})") unless port.is_a?(Integer) && Ports::USABLE.cover?(port)
+
+        session = Session.new(folder, port)
+        extra = {}
+        extra[$stdin] = lambda do |io|
+          data = io.read_nonblock(STDIN_CHUNK, exception: false)
+          if data.nil?
+            session.stop ||= :stdin
+            extra.delete(io)
+          end
+        rescue IOError, SystemCallError
+          session.stop ||= :stdin
+          extra.delete(io)
+        end
+        on_tick = ->(jobs) { tick(jobs.first, session) }
+        child_result = Shopify.run(located, dev_args(domain, folder, port), deadline: overall.remaining, max_stdout: RING,
+                                                                            stdout_mode: :tail, on_tick: on_tick, extra_io: extra)
+        finish(child_result, session)
+      end
+
+      def tick(job, session)
+        unless session.stop
+          now = Deadline.now
+          session.recheck(now)
+          session.probe(job, now) unless session.stop
+        end
+        job.stop!(:request) if session.stop
+      end
+
+      def finish(child_result, session)
+        return EXITED_OK if session.stop == :stdin
+        raise session.stop if session.stop
+        raise Failure.new('timeout', 'preview reached its 8 hour limit') if child_result.timed_out
+
+        Classify.check!(child_result, theme: true)
+        EXITED_OK
+      end
+    end
+  end
+end
+
+Shop::Helpers::PreviewTheme.run(ARGV) if $PROGRAM_NAME == __FILE__

@@ -1,0 +1,30 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: lists a store's themes (`shopify theme list --json`) as one JSON line.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module ListThemes
+      NAME = 'list-themes'
+      USAGE = <<~TEXT
+        usage: helpers/list-themes --store=<domain>
+
+        Prints {"ok":true,"themes":[{"id","name","role"}]} (at most
+        #{Themes::MAX_THEMES} themes; names cleaned).
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[store], required: %w[store]) do |options, overall|
+          domain = Validate.domain!(options['store'])
+          themes = Themes.list(Runtime.locate, domain, deadline: overall.cap(Shop.seconds(:call, NAME)))
+          { 'ok' => true, 'themes' => themes }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::ListThemes.run(ARGV) if $PROGRAM_NAME == __FILE__

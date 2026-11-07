@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "shop",
   "name": "Shop",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "author": "ronald2wing",
   "license": "MIT",
-  "description": "Push/pull Shopify themes and watch per-store sales from the Omarchy bar. No token is stored — auth lives in the Shopify CLI.",
+  "description": "Watch per-store Shopify sales from the bar and push, pull or preview themes safely. Uses your Shopify CLI session; stores no credentials.",
   "homepage": "https://github.com/ronald2wing/Omarchy-Shop",
   "repository": "https://github.com/ronald2wing/Omarchy-Shop",
   "kinds": ["service", "bar-widget"],
@@ -15,10 +15,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Shop",
-    "description": "Shopify sales per store with theme push/pull",
+    "description": "Shopify sales per store with safe theme sync",
     "category": "Developer Tools",
-    "allowMultiple": false,
     "defaultSection": "right"
   }
 }

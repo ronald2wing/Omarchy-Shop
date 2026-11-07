@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "You are not authorized to use the CLI to develop in the provided store.",
+    "tryMessage": "You can't use Shopify CLI with development stores if you only have Partner staff member access. If you want to use Shopify CLI to work on this store, then you should be the store owner or create a staff account on the store.\n\nIf you're the store owner, then you need to log in to the store directly using the store URL at least once before you log in using Shopify CLI. Logging in to the Shopify admin directly connects the development store with your Shopify login."
+  }
+}

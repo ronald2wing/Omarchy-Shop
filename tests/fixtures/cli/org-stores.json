@@ -1,0 +1,24 @@
+{
+  "100": [
+    {
+      "id": "gid://shopify/Shop/1",
+      "store": "alpha.myshopify.com",
+      "name": "Alpha Apparel",
+      "organizationId": "100"
+    },
+    {
+      "id": "gid://shopify/Shop/3",
+      "store": "gamma.myshopify.com",
+      "name": "Gamma 10",
+      "organizationId": "100"
+    }
+  ],
+  "200": [
+    {
+      "id": "gid://shopify/Shop/4",
+      "store": "gamma2.myshopify.com",
+      "name": "Gamma 9",
+      "organizationId": "200"
+    }
+  ]
+}

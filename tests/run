@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+# The check suite (CONTRIBUTING.md "Checks"); stops at the first failure.
+#
+#   tests/run                 every step
+#   tests/run <test>...       just those: tests/qml/<name>_smoke.qml,
+#                             tests/ruby/test_<name>.rb, tests/js/test_<name>.mjs
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+# Tracked plus untracked files, minus ignored ones, so a moved or new file
+# cannot drop out of the suite; a tracked file deleted in the worktree is
+# skipped. In a git pathspec `*` also matches `/`, so 'lib/*.rb' includes
+# lib/shop/*.rb.
+files() {
+  local f
+  for f in $(git ls-files --cached --others --exclude-standard -- "$@"); do
+    [ -e "$f" ] && printf '%s\n' "$f"
+  done
+  return 0
+}
+
+RUBY=/usr/bin/ruby
+QML=/usr/lib/qt6/bin/qml
+QMLLINT=/usr/lib/qt6/bin/qmllint
+SHELL_DIR="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
+
+# Node for `node --check` and the JS tests: PATH first, then the pinned
+# install under mise's data dir, then mise's default data dir.
+NODE=""
+find_node() {
+  [ -n "$NODE" ] && return 0
+  local pin data
+  pin="$(sed -n "s/^  NODE_PIN = '\([0-9.]*\)'$/\1/p" lib/shop.rb)"
+  [ -n "$pin" ] || fail "cannot read NODE_PIN from lib/shop.rb"
+  data="${XDG_DATA_HOME:-$HOME/.local/share}"
+  if command -v node >/dev/null 2>&1; then
+    NODE="$(command -v node)"
+  elif [ -n "${MISE_DATA_DIR:-}" ] && [ -x "$MISE_DATA_DIR/installs/node/$pin/bin/node" ]; then
+    NODE="$MISE_DATA_DIR/installs/node/$pin/bin/node"
+  elif [ -x "$data/mise/installs/node/$pin/bin/node" ]; then
+    NODE="$data/mise/installs/node/$pin/bin/node"
+  fi
+  [ -n "$NODE" ] || fail "node not found on PATH, at \$MISE_DATA_DIR/installs/node/$pin/bin/node or \${XDG_DATA_HOME:-~/.local/share}/mise/installs/node/$pin/bin/node"
+}
+
+# Temp dirs removed on exit: qmllint's import root and the smokes' HOME.
+lint_root=""
+smoke_home=""
+cleanup() {
+  [ -n "$lint_root" ] && rm -rf "$lint_root"
+  [ -n "$smoke_home" ] && rm -rf "$smoke_home"
+  return 0
+}
+trap cleanup EXIT
+
+# Each QML smoke runs a real Service or panel against the fake CLI, so it
+# never sees the user's HOME: a fresh mktemp HOME per smoke (nothing in
+# ~/.local/state, ~/.cache or a stub counter carries over) with every XDG
+# dir and MISE_DATA_DIR under it, filled by tests/qml/fake-home.sh with
+# links to tests/fixtures/bin (fake-home.sh refuses any install that is not
+# one of those fakes). The smoke sees only the variables in smoke_env.
+smoke_env=()
+prepare_smoke_home() {
+  if [ -n "$smoke_home" ]; then rm -rf "$smoke_home"; smoke_home=""; fi
+  # Under the runtime dir (0700): the smokes run theme jobs in it, and Shop
+  # refuses theme folders under /tmp.
+  local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  [ -d "$runtime" ] && [ -w "$runtime" ] || fail "no writable runtime dir ($runtime) for the smokes' HOME: Shop refuses theme folders under /tmp"
+  # Never a name the CLI's auto-upgrade reads as yarn, pnpm or bun
+  # (Shop::Runtime::UPGRADER_RE): Shop would refuse the fake CLI there.
+  smoke_home="$(mktemp -d -p "$runtime" shop-smoke-XXXXXX)"
+  while [[ "${smoke_home,,}" =~ yarn|pnpm|bun ]]; do
+    rm -rf "$smoke_home"
+    smoke_home="$(mktemp -d -p "$runtime" shop-smoke-XXXXXX)"
+  done
+  local data="$smoke_home/.local/share"
+  smoke_env=(
+    "HOME=$smoke_home"
+    "XDG_DATA_HOME=$data"
+    "XDG_CONFIG_HOME=$smoke_home/.config"
+    "XDG_STATE_HOME=$smoke_home/.local/state"
+    "XDG_CACHE_HOME=$smoke_home/.cache"
+    "MISE_DATA_DIR=$data/mise"
+    "XDG_RUNTIME_DIR=$runtime"
+    "PATH=/usr/bin:/bin"
+    "LANG=C.UTF-8"
+    "QT_QPA_PLATFORM=offscreen"
+    "QT_FORCE_STDERR_LOGGING=1"
+  )
+}
+
+# One tests/qml/<name>_smoke.qml, offscreen, in its own throwaway HOME. It
+# passes when it prints <NAME>_OK (its Smoke's name: the file name
+# upper-cased, without _smoke) and no engine error line.
+run_smoke() {
+  local file="$1" base name output bad
+  [ -x "$QML" ] || fail "$QML is missing (qt6-declarative)"
+  base="$(basename "$file" .qml)"
+  name="$(printf '%s' "${base%_smoke}" | tr '[:lower:]' '[:upper:]')"
+  prepare_smoke_home
+  output="$(env -i "${smoke_env[@]}" bash tests/qml/fake-home.sh "$smoke_home" run "$file" 2>&1 || true)"
+  bad="$(printf '%s\n' "$output" | grep -E 'unavailable|TypeError|ReferenceError|SyntaxError|is not defined|Cannot assign' || true)"
+  # `qml` prefixes console output with "qml: " under QT_FORCE_STDERR_LOGGING.
+  if [ -n "$bad" ] || ! printf '%s\n' "$output" | grep -qE "(^|: )${name}_OK$"; then
+    printf '%s\n' "$output"
+    fail "$file"
+  fi
+}
+
+# One test file of any kind; prints "ok <file>". The tests print nothing
+# when they pass.
+run_test() {
+  local file="$1"
+  case "$file" in
+    tests/qml/*_smoke.qml) run_smoke "$file" ;;
+    tests/ruby/test_*.rb) "$RUBY" "$file" || fail "$file" ;;
+    tests/js/test_*.mjs) find_node; "$NODE" "$file" || fail "$file" ;;
+    *) fail "$file is not a test (tests/qml/*_smoke.qml, tests/ruby/test_*.rb or tests/js/test_*.mjs)" ;;
+  esac
+  printf 'ok %s\n' "$file"
+}
+
+if [ $# -gt 0 ]; then
+  for t in "$@"; do
+    [ -f "$t" ] || fail "$t is missing"
+    run_test "${t#./}"
+  done
+  exit 0
+fi
+
+# ----- the steps, in order -----
+
+step_manifest() {
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy plugin validate . >/dev/null || { omarchy plugin validate .; fail "omarchy plugin validate"; }
+    echo "ok omarchy plugin validate"
+  else
+    echo "skipped omarchy plugin validate (omarchy not on PATH)"
+  fi
+  local version
+  version="$("$RUBY" --disable-gems -rjson -e 'print JSON.parse(File.read("manifest.json"))["version"].to_s')" || fail "manifest.json is not valid JSON"
+  printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || fail "manifest.json version is not MAJOR.MINOR.PATCH: '$version'"
+  echo "ok version $version"
+}
+
+step_syntax() {
+  local f
+  # One file per call: `ruby -c a b` checks only a and hands b to it as ARGV.
+  for f in $(files 'lib/*.rb' 'helpers/*' 'tests/ruby/*.rb' 'tests/fixtures/bin/*'); do
+    "$RUBY" --disable-gems -c "$f" >/dev/null || fail "ruby -c $f"
+  done
+  echo "ok ruby -c"
+  find_node
+  for f in $(files 'js/*.mjs' 'tests/js/*.mjs'); do "$NODE" --check "$f" || fail "node --check $f"; done
+  echo "ok node --check ($NODE)"
+  for f in tests/run tests/qml/fake-home.sh; do bash -n "$f" || fail "bash -n $f"; done
+  echo "ok bash -n"
+}
+
+step_qmllint() {
+  [ -x "$QMLLINT" ] || fail "$QMLLINT is missing (qt6-declarative)"
+  [ -d "$SHELL_DIR" ] || fail "$SHELL_DIR is missing"
+  # The shell's modules import as `qs.*`, so qmllint gets an import root
+  # with a `qs` link to the shell. A quickshell smoke imports "shop/..."
+  # from the config dir fake-home.sh builds, so it is linted as a copy in
+  # a dir of that shape (a `shop` link to this checkout beside it). Every
+  # qmldir is passed with -i: left to find it itself, qmllint reports a
+  # singleton in that directory as "not declared as singleton in qmldir".
+  # --ignore-settings: no .qmllint.ini can relax the check. The filter
+  # drops qmllint's false positives on the shell's untyped QtObject style
+  # tokens.
+  lint_root="$(mktemp -d)"
+  ln -s "$SHELL_DIR" "$lint_root/qs"
+  mkdir "$lint_root/smokes"
+  ln -s "$PWD" "$lint_root/smokes/shop"
+  local f qmldirs=() qml_files=() output problems
+  for f in $(files '*qmldir'); do qmldirs+=(-i "$f"); done
+  for f in $(files '*.qml'); do
+    if [[ "$f" == tests/qml/*_smoke.qml ]] && head -1 "$f" | grep -q '^// runner: quickshell$'; then
+      cp "$f" "$lint_root/smokes/"
+      qml_files+=("$lint_root/smokes/$(basename "$f")")
+    else
+      qml_files+=("$f")
+    fi
+  done
+  output="$("$QMLLINT" --ignore-settings -I "$lint_root" "${qmldirs[@]}" "${qml_files[@]}" 2>&1 || true)"
+  problems="$(printf '%s\n' "$output" | grep -E '^(Warning|Error)' | grep -v 'not found on type "QObject" \[missing-property\]' | sed "s|$lint_root/smokes/|tests/qml/|g" || true)"
+  if [ -n "$problems" ]; then
+    printf '%s\n' "$problems"
+    fail "qmllint"
+  fi
+  echo "ok qmllint (${#qml_files[@]} files)"
+}
+
+# Only helpers/, tests/run and tests/fixtures/bin/ are executable, on disk
+# and in the index (tests/qml/fake-home.sh runs with bash).
+step_executables() {
+  local f mode path
+  for f in $(files); do
+    if [ ! -f "$f" ] || [ -L "$f" ]; then continue; fi
+    case "$f" in helpers/*|tests/run|tests/fixtures/bin/*) continue ;; esac
+    if [ -x "$f" ]; then fail "$f is executable"; fi
+  done
+  while read -r mode _ _ path; do
+    case "$path" in helpers/*|tests/run|tests/fixtures/bin/*) continue ;; esac
+    if [ "$mode" = 100755 ]; then fail "$path is tracked as executable"; fi
+  done < <(git ls-files -s)
+  echo "ok"
+}
+
+step_ruby() {
+  # support.rb and launcher.rb are shared code, not tests.
+  local tests t
+  tests="$(files 'tests/ruby/test_*.rb')"
+  [ -n "$tests" ] || fail "no ruby tests found"
+  for t in $tests; do run_test "$t"; done
+}
+
+step_js() {
+  local tests t
+  tests="$(files 'tests/js/test_*.mjs')"
+  [ -n "$tests" ] || fail "no js tests found"
+  for t in $tests; do run_test "$t"; done
+}
+
+step_smokes() {
+  # js_modules_smoke first: every js/*.mjs in the real QML engine, which
+  # the other smokes build on.
+  local smokes=(tests/qml/js_modules_smoke.qml) f
+  for f in $(files 'tests/qml/*_smoke.qml'); do
+    [ "$f" = tests/qml/js_modules_smoke.qml ] || smokes+=("$f")
+  done
+  [ "${#smokes[@]}" -gt 1 ] || fail "no tests/qml/*_smoke.qml besides the modules smoke"
+  for f in "${smokes[@]}"; do run_test "$f"; done
+}
+
+step_payload() {
+  local untracked qmldir f
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "HEAD $(git rev-parse HEAD) (dirty: yes)"
+  else
+    echo "HEAD $(git rev-parse HEAD) (dirty: no)"
+  fi
+  # The steps above test the worktree, untracked files included; a release
+  # commit (`git commit -a`) carries only tracked ones, so anything listed
+  # here would silently drop out of the release. (That no agent steering
+  # file is tracked or archived is tests/ruby/test_contracts_payload.rb's.)
+  untracked="$(git ls-files --others --exclude-standard)"
+  [ -z "$untracked" ] || fail "untracked files would be dropped from a release commit (git add them): $(printf '%s ' $untracked)"
+  for qmldir in ui/qmldir model/qmldir; do
+    for f in $(awk 'NF >= 3 && $NF ~ /\.qml$/ { print $NF }' "$qmldir"); do
+      git ls-files --error-unmatch "${qmldir%/qmldir}/$f" >/dev/null 2>&1 || fail "$qmldir names ${qmldir%/qmldir}/$f, which is not tracked"
+    done
+  done
+  echo "ok"
+}
+
+STEPS=(manifest syntax qmllint executables ruby js smokes payload)
+n=0
+for s in "${STEPS[@]}"; do
+  n=$((n + 1))
+  printf '\n== %d/%d %s\n' "$n" "${#STEPS[@]}" "$s"
+  "step_$s"
+done
+printf '\nall checks passed\n'

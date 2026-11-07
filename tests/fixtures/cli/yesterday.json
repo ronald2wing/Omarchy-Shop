@@ -1,0 +1,352 @@
+{
+  "data": {
+    "shop": {
+      "ianaTimezone": "America/New_York",
+      "currencyCode": "USD"
+    },
+    "page": {
+      "nodes": [
+        {
+          "createdAt": "2026-11-06T13:00:00Z",
+          "totalPriceSet": {
+            "shopMoney": {
+              "amount": "10.00"
+            }
+          }
+        },
+        {
+          "createdAt": "2026-11-06T20:15:00Z",
+          "totalPriceSet": {
+            "shopMoney": {
+              "amount": "25.50"
+            }
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      }
+    },
+    "salesHourly": {
+      "tableData": {
+        "columns": [
+          {
+            "name": "hour"
+          },
+          {
+            "name": "total_sales"
+          }
+        ],
+        "rows": [
+          {
+            "hour": "2026-11-06T05:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T06:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T07:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T08:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T09:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T10:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T11:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T12:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T13:00:00Z",
+            "total_sales": "10.00"
+          },
+          {
+            "hour": "2026-11-06T14:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T15:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T16:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T17:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T18:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T19:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T20:00:00Z",
+            "total_sales": "25.50"
+          },
+          {
+            "hour": "2026-11-06T21:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-06T22:00:00Z",
+            "total_sales": "38.50"
+          },
+          {
+            "hour": "2026-11-06T23:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-07T00:00:00Z",
+            "total_sales": "-5.00"
+          },
+          {
+            "hour": "2026-11-07T01:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-07T02:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-07T03:00:00Z",
+            "total_sales": "0"
+          },
+          {
+            "hour": "2026-11-07T04:00:00Z",
+            "total_sales": "0"
+          }
+        ]
+      },
+      "parseErrors": []
+    },
+    "trafficHourly": {
+      "tableData": {
+        "columns": [
+          {
+            "name": "hour"
+          },
+          {
+            "name": "sessions"
+          },
+          {
+            "name": "sessions_with_cart_additions"
+          },
+          {
+            "name": "sessions_that_reached_checkout"
+          },
+          {
+            "name": "sessions_that_completed_checkout"
+          }
+        ],
+        "rows": [
+          {
+            "hour": "2026-11-06T05:00:00Z",
+            "sessions": "40",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T06:00:00Z",
+            "sessions": "41",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T07:00:00Z",
+            "sessions": "42",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T08:00:00Z",
+            "sessions": "43",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T09:00:00Z",
+            "sessions": "44",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T10:00:00Z",
+            "sessions": "45",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T11:00:00Z",
+            "sessions": "46",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T12:00:00Z",
+            "sessions": "47",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T13:00:00Z",
+            "sessions": "48",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T14:00:00Z",
+            "sessions": "49",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T15:00:00Z",
+            "sessions": "50",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T16:00:00Z",
+            "sessions": "51",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T17:00:00Z",
+            "sessions": "52",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T18:00:00Z",
+            "sessions": "53",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T19:00:00Z",
+            "sessions": "54",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T20:00:00Z",
+            "sessions": "55",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T21:00:00Z",
+            "sessions": "56",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T22:00:00Z",
+            "sessions": "57",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-06T23:00:00Z",
+            "sessions": "58",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-07T00:00:00Z",
+            "sessions": "59",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-07T01:00:00Z",
+            "sessions": "60",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-07T02:00:00Z",
+            "sessions": "61",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-07T03:00:00Z",
+            "sessions": "62",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          },
+          {
+            "hour": "2026-11-07T04:00:00Z",
+            "sessions": "63",
+            "sessions_with_cart_additions": "3",
+            "sessions_that_reached_checkout": "1",
+            "sessions_that_completed_checkout": "0"
+          }
+        ]
+      },
+      "parseErrors": []
+    }
+  },
+  "extensions": {
+    "cost": {
+      "requestedQueryCost": 35,
+      "actualQueryCost": 30,
+      "throttleStatus": {
+        "maximumAvailable": 2000,
+        "currentlyAvailable": 1970,
+        "restoreRate": 100
+      }
+    },
+    "shopifyqlCost": {
+      "requestedQueryCost": 14,
+      "maximumAvailable": 1000,
+      "currentlyAvailable": 986,
+      "windowResetAt": "2026-11-07T15:01:00+00:00"
+    }
+  }
+}

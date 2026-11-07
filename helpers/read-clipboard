@@ -1,0 +1,48 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: reads the clipboard text for a paste into a Shop field, through wl-paste under a byte cap and a deadline.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module ReadClipboard
+      NAME = 'read-clipboard'
+      # Bytes taken from wl-paste before the paste is refused, and the chars
+      # a field receives.
+      MAX_BYTES = 16 * KIB
+      MAX_CHARS = 4096
+      USAGE = <<~TEXT
+        usage: helpers/read-clipboard
+
+        Runs `wl-paste --no-newline --type text` and prints
+        {"ok":true,"text":<first line, control characters removed, trimmed,
+        at most #{MAX_CHARS} chars>}; an empty clipboard or one with no text is
+        {"ok":true,"text":""}. The shell never reads the clipboard itself:
+        Qt's own read has no size or time bound, so a clipboard owner that
+        keeps sending would block or exhaust the shell. Here wl-paste is a
+        supervised child: past #{MAX_BYTES / KIB} KiB the paste fails clipboard_too_large,
+        past #{Shop.seconds(:call, 'read-clipboard')} s it fails timeout, and either way the child is
+        stopped (TERM, grace, KILL, reap). Without wl-paste it fails
+        clipboard_unavailable.
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE) do |_options, overall|
+          raise Failure.new('clipboard_unavailable', 'wl-paste is not installed') unless Tools.available?(:wl_paste)
+
+          paste = Tools.run(:wl_paste, %w[--no-newline --type text], deadline: overall.cap(Shop.seconds(:call, NAME)), max_stdout: MAX_BYTES)
+          raise Failure.new('clipboard_too_large', "the clipboard holds more than #{MAX_BYTES / KIB} KiB") if paste.overflowed
+          raise Failure.new('timeout', 'the clipboard did not answer in time') if paste.timed_out
+
+          # wl-paste exits 1 for an empty clipboard and for one without text.
+          text = paste.exit_code == 0 ? Text.pasted(Text.as_utf8(paste.stdout), MAX_CHARS) : ''
+          { 'ok' => true, 'text' => text }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::ReadClipboard.run(ARGV) if $PROGRAM_NAME == __FILE__

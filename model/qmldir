@@ -1,0 +1,17 @@
+Account 1.0 Account.qml
+CacheStore 1.0 CacheStore.qml
+Clipboard 1.0 Clipboard.qml
+ConfigStore 1.0 ConfigStore.qml
+Consent 1.0 Consent.qml
+Discovery 1.0 Discovery.qml
+HelperProcess 1.0 HelperProcess.qml
+HelperStream 1.0 HelperStream.qml
+OrderAlerts 1.0 OrderAlerts.qml
+Preflight 1.0 Preflight.qml
+Previews 1.0 Previews.qml
+SalesAccess 1.0 SalesAccess.qml
+SalesData 1.0 SalesData.qml
+SalesScheduler 1.0 SalesScheduler.qml
+StateDir 1.0 StateDir.qml
+ThemeInfo 1.0 ThemeInfo.qml
+ThemeJobs 1.0 ThemeJobs.qml

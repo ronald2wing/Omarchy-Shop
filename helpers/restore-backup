@@ -1,0 +1,48 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: restores a completed backup to the theme it was taken from (fresh backup first; always --nodelete).
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module RestoreBackup
+      NAME = 'restore-backup'
+      USAGE = <<~TEXT
+        usage: helpers/restore-backup --store=<domain> --backup=<epoch>-<themeId> [--allow-live] [--confirm-live]
+
+        Pushes backups/<domain>/<id>/files/ to the theme the backup was taken
+        from, after backing that theme up again. A live target needs both
+        --allow-live and --confirm-live. When the push fails after the fresh
+        backup was taken, the failure line carries its "backupId". Every
+        line carries "writeStarted" (false: the theme was not touched; true:
+        the CLI push had begun).
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[store backup],
+                                         switches: %w[allow-live confirm-live], required: %w[store backup],
+                                         line_fields: { 'writeStarted' => false, 'backupId' => nil }) do |options|
+          domain = Validate.domain!(options['store'])
+          id = Validate.backup_id!(options['backup'])
+          restore(domain, id, options['allow-live'] == true, options['confirm-live'] == true)
+        end
+      end
+
+      # The backup is read under the lock, and found again right before the
+      # push (the fresh backup can take minutes); retention keeps it.
+      def restore(domain, id, allow_live, confirm_live)
+        ThemeJob.run(domain, helper: NAME, keep: [id]) do |job|
+          theme = job.target!(Backups.find!(domain, id)[:meta]['themeId'].to_s)
+          fresh, pushed = job.push_with_backup!(theme, before: 'restore', allow_live: allow_live, confirm_live: confirm_live) do
+            Backups.find!(domain, id)[:files]
+          end
+          { 'ok' => true, 'theme' => theme, 'backupId' => fresh, 'warnings' => pushed[:issues], 'partial' => pushed[:partial] }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::RestoreBackup.run(ARGV) if $PROGRAM_NAME == __FILE__

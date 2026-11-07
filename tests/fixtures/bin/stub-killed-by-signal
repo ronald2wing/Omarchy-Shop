@@ -1,0 +1,4 @@
+#!/usr/bin/ruby --disable-gems
+# Helper double for tests/qml/model_doubles_smoke.qml: dies by SIGKILL before it prints anything (the OOM killer, a pkill -9, a crash).
+
+Process.kill(:KILL, Process.pid)

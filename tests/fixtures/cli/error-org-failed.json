@@ -1,0 +1,6 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "Could not fetch stores for the organization."
+  }
+}

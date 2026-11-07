@@ -1,0 +1,1016 @@
+{
+  "data": {
+    "shop": {
+      "ianaTimezone": "America/New_York",
+      "currencyCode": "USD"
+    },
+    "salesDaily": {
+      "tableData": {
+        "columns": [
+          {
+            "name": "day"
+          },
+          {
+            "name": "total_sales"
+          },
+          {
+            "name": "orders"
+          }
+        ],
+        "rows": [
+          {
+            "day": "2026-09-08",
+            "total_sales": "10.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-09-09",
+            "total_sales": "11.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-09-10",
+            "total_sales": "12.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-09-11",
+            "total_sales": "13.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-09-12",
+            "total_sales": "14.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-09-13",
+            "total_sales": "15.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-09-14",
+            "total_sales": "16.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-09-15",
+            "total_sales": "17.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-09-16",
+            "total_sales": "18.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-09-17",
+            "total_sales": "19.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-09-18",
+            "total_sales": "20.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-09-19",
+            "total_sales": "21.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-09-20",
+            "total_sales": "22.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-09-21",
+            "total_sales": "23.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-09-22",
+            "total_sales": "24.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-09-23",
+            "total_sales": "25.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-09-24",
+            "total_sales": "26.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-09-25",
+            "total_sales": "27.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-09-26",
+            "total_sales": "28.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-09-27",
+            "total_sales": "29.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-09-28",
+            "total_sales": "30.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-09-29",
+            "total_sales": "31.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-09-30",
+            "total_sales": "32.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-01",
+            "total_sales": "33.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-02",
+            "total_sales": "34.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-03",
+            "total_sales": "35.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-04",
+            "total_sales": "36.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-05",
+            "total_sales": "37.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-06",
+            "total_sales": "38.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-07",
+            "total_sales": "39.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-08",
+            "total_sales": "40.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-09",
+            "total_sales": "41.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-10",
+            "total_sales": "42.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-11",
+            "total_sales": "43.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-12",
+            "total_sales": "44.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-13",
+            "total_sales": "45.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-14",
+            "total_sales": "46.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-15",
+            "total_sales": "47.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-16",
+            "total_sales": "48.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-17",
+            "total_sales": "49.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-18",
+            "total_sales": "50.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-19",
+            "total_sales": "51.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-20",
+            "total_sales": "52.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-21",
+            "total_sales": "53.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-22",
+            "total_sales": "54.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-23",
+            "total_sales": "55.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-24",
+            "total_sales": "56.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-25",
+            "total_sales": "57.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-26",
+            "total_sales": "58.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-27",
+            "total_sales": "59.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-28",
+            "total_sales": "60.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-10-29",
+            "total_sales": "61.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-10-30",
+            "total_sales": "62.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-10-31",
+            "total_sales": "63.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-11-01",
+            "total_sales": "64.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-11-02",
+            "total_sales": "65.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-11-03",
+            "total_sales": "66.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-11-04",
+            "total_sales": "67.00",
+            "orders": "1"
+          },
+          {
+            "day": "2026-11-05",
+            "total_sales": "68.00",
+            "orders": "2"
+          },
+          {
+            "day": "2026-11-06",
+            "total_sales": "69.00",
+            "orders": "3"
+          },
+          {
+            "day": "2026-11-07",
+            "total_sales": "0",
+            "orders": "0"
+          }
+        ]
+      },
+      "parseErrors": []
+    },
+    "sessionsDaily": {
+      "tableData": {
+        "columns": [
+          {
+            "name": "day"
+          },
+          {
+            "name": "sessions"
+          },
+          {
+            "name": "sessions_with_cart_additions"
+          },
+          {
+            "name": "sessions_that_reached_checkout"
+          },
+          {
+            "name": "sessions_that_completed_checkout"
+          }
+        ],
+        "rows": [
+          {
+            "day": "2026-09-08",
+            "sessions": "100",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-09",
+            "sessions": "101",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-10",
+            "sessions": "102",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-11",
+            "sessions": "103",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-12",
+            "sessions": "104",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-13",
+            "sessions": "105",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-14",
+            "sessions": "106",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-15",
+            "sessions": "107",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-16",
+            "sessions": "108",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-17",
+            "sessions": "109",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-18",
+            "sessions": "110",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-19",
+            "sessions": "111",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-20",
+            "sessions": "112",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-21",
+            "sessions": "113",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-22",
+            "sessions": "114",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-23",
+            "sessions": "115",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-24",
+            "sessions": "116",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-25",
+            "sessions": "117",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-26",
+            "sessions": "118",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-27",
+            "sessions": "119",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-28",
+            "sessions": "120",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-29",
+            "sessions": "121",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-09-30",
+            "sessions": "122",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-01",
+            "sessions": "123",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-02",
+            "sessions": "124",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-03",
+            "sessions": "125",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-04",
+            "sessions": "126",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-05",
+            "sessions": "127",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-06",
+            "sessions": "128",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-07",
+            "sessions": "129",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-08",
+            "sessions": "130",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-09",
+            "sessions": "131",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-10",
+            "sessions": "132",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-11",
+            "sessions": "133",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-12",
+            "sessions": "134",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-13",
+            "sessions": "135",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-14",
+            "sessions": "136",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-15",
+            "sessions": "137",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-16",
+            "sessions": "138",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-17",
+            "sessions": "139",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-18",
+            "sessions": "140",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-19",
+            "sessions": "141",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-20",
+            "sessions": "142",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-21",
+            "sessions": "143",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-22",
+            "sessions": "144",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-23",
+            "sessions": "145",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-24",
+            "sessions": "146",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-25",
+            "sessions": "147",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-26",
+            "sessions": "148",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-27",
+            "sessions": "149",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-28",
+            "sessions": "150",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-29",
+            "sessions": "151",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-30",
+            "sessions": "152",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-10-31",
+            "sessions": "153",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-11-01",
+            "sessions": "154",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-11-02",
+            "sessions": "155",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-11-03",
+            "sessions": "156",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-11-04",
+            "sessions": "157",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-11-05",
+            "sessions": "158",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-11-06",
+            "sessions": "159",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          },
+          {
+            "day": "2026-11-07",
+            "sessions": "160",
+            "sessions_with_cart_additions": "10",
+            "sessions_that_reached_checkout": "4",
+            "sessions_that_completed_checkout": "2"
+          }
+        ]
+      },
+      "parseErrors": []
+    },
+    "salesMonthly": {
+      "tableData": {
+        "columns": [
+          {
+            "name": "month"
+          },
+          {
+            "name": "total_sales"
+          },
+          {
+            "name": "orders"
+          }
+        ],
+        "rows": [
+          {
+            "month": "2025-11-01",
+            "total_sales": "100.00",
+            "orders": "1"
+          },
+          {
+            "month": "2025-12-01",
+            "total_sales": "200.00",
+            "orders": "2"
+          },
+          {
+            "month": "2026-01-01",
+            "total_sales": "300.00",
+            "orders": "3"
+          },
+          {
+            "month": "2026-02-01",
+            "total_sales": "400.00",
+            "orders": "4"
+          },
+          {
+            "month": "2026-03-01",
+            "total_sales": "500.00",
+            "orders": "5"
+          },
+          {
+            "month": "2026-04-01",
+            "total_sales": "600.00",
+            "orders": "6"
+          },
+          {
+            "month": "2026-05-01",
+            "total_sales": "700.00",
+            "orders": "7"
+          },
+          {
+            "month": "2026-06-01",
+            "total_sales": "800.00",
+            "orders": "8"
+          },
+          {
+            "month": "2026-07-01",
+            "total_sales": "900.00",
+            "orders": "9"
+          },
+          {
+            "month": "2026-08-01",
+            "total_sales": "1000.00",
+            "orders": "10"
+          },
+          {
+            "month": "2026-09-01",
+            "total_sales": "1100.00",
+            "orders": "11"
+          },
+          {
+            "month": "2026-10-01",
+            "total_sales": "1200.00",
+            "orders": "12"
+          },
+          {
+            "month": "2026-11-01",
+            "total_sales": "1300.00",
+            "orders": "13"
+          }
+        ]
+      },
+      "parseErrors": []
+    },
+    "sessionsMonthly": {
+      "tableData": {
+        "columns": [
+          {
+            "name": "month"
+          },
+          {
+            "name": "sessions"
+          },
+          {
+            "name": "sessions_with_cart_additions"
+          },
+          {
+            "name": "sessions_that_reached_checkout"
+          },
+          {
+            "name": "sessions_that_completed_checkout"
+          }
+        ],
+        "rows": [
+          {
+            "month": "2025-11-01",
+            "sessions": "1000",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2025-12-01",
+            "sessions": "1001",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-01-01",
+            "sessions": "1002",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-02-01",
+            "sessions": "1003",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-03-01",
+            "sessions": "1004",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-04-01",
+            "sessions": "1005",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-05-01",
+            "sessions": "1006",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-06-01",
+            "sessions": "1007",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-07-01",
+            "sessions": "1008",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-08-01",
+            "sessions": "1009",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-09-01",
+            "sessions": "1010",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-10-01",
+            "sessions": "1011",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          },
+          {
+            "month": "2026-11-01",
+            "sessions": "1012",
+            "sessions_with_cart_additions": "50",
+            "sessions_that_reached_checkout": "20",
+            "sessions_that_completed_checkout": "10"
+          }
+        ]
+      },
+      "parseErrors": []
+    },
+    "lifetime": {
+      "tableData": {
+        "columns": [
+          {
+            "name": "total_sales"
+          },
+          {
+            "name": "orders"
+          }
+        ],
+        "rows": [
+          {
+            "total_sales": "15425.37",
+            "orders": "444"
+          }
+        ]
+      },
+      "parseErrors": []
+    }
+  },
+  "extensions": {
+    "cost": {
+      "requestedQueryCost": 35,
+      "actualQueryCost": 30,
+      "throttleStatus": {
+        "maximumAvailable": 2000,
+        "currentlyAvailable": 1970,
+        "restoreRate": 100
+      }
+    },
+    "shopifyqlCost": {
+      "requestedQueryCost": 366,
+      "maximumAvailable": 1000,
+      "currentlyAvailable": 620,
+      "windowResetAt": "2026-11-07T15:01:00+00:00"
+    }
+  }
+}

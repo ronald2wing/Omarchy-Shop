@@ -1,0 +1,67 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: grants Shop sales access to one store (`shopify store auth`, interactive), then verifies with a shop-name query.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module GrantSalesAccess
+      NAME = 'grant-sales-access'
+      USAGE = <<~TEXT
+        usage: helpers/grant-sales-access --store=<domain>
+
+        Run `store auth --store=<domain> --scopes=#{SCOPES}` (interactive:
+        the browser opens), then verify with `{ shop { name } }`. Prints
+        {"ok":true,"name":"…"|null} (name = the shop's own name, null when
+        Shopify gives none).
+        A store that still refuses sales access fails with sales_access_required.
+        The shop-name query needs no scope, so after a failed `store auth` it
+        only counts when `store auth list` shows a session for the store
+        holding every scope Shop uses; otherwise the auth error stands.
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[store], required: %w[store]) do |options, overall|
+          domain = Validate.domain!(options['store'])
+          located = Runtime.interactive_safe!(Runtime.locate)
+          verify_s = Shop.seconds(:call, NAME, 'verify')
+          auth_error = nil
+          begin
+            Shopify.call(located, ['store', 'auth', "--store=#{domain}", "--scopes=#{SCOPES}"], interactive: true,
+                         deadline: overall.cap(overall.remaining - verify_s), json: false)
+          rescue Failure => e
+            raise if Shopify::INTERACTIVE_FATAL.include?(e.code)
+
+            auth_error = e
+          end
+          begin
+            data, = Shopify.execute(located, domain, Queries::SHOP_NAME, deadline: overall.cap(verify_s))
+          rescue Failure => e
+            # The verify error is the precise one (sales_access_required); a
+            # generic verify failure after a failed auth reports the auth.
+            raise auth_error if auth_error && %w[cli_failed bad_response].include?(e.code)
+
+            raise
+          end
+          raise auth_error if auth_error && !scoped_session?(located, domain, overall.cap(verify_s))
+
+          name = Validate.label(Json.dig(data, 'shop', 'name'))
+          { 'ok' => true, 'name' => name }
+        end
+      end
+
+      # An older session (other scopes) answers the shop-name query after a
+      # cancelled or narrowed grant; only one holding SCOPES is access.
+      def scoped_session?(located, domain, deadline)
+        body = Shopify.call(located, Stores::AUTH_LIST_ARGS, deadline: deadline)
+        Stores.from_auth_sessions(body).include?(domain)
+      rescue Failure
+        false
+      end
+    end
+  end
+end
+
+Shop::Helpers::GrantSalesAccess.run(ARGV) if $PROGRAM_NAME == __FILE__

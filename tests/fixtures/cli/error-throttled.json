@@ -1,0 +1,17 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "GraphQL operation failed.",
+    "tryMessage": "{\n  \"errors\": [\n    {\n      \"message\": \"Throttled\",\n      \"extensions\": {\n        \"code\": \"THROTTLED\"\n      }\n    }\n  ]\n}",
+    "details": {
+      "errors": [
+        {
+          "message": "Throttled",
+          "extensions": {
+            "code": "THROTTLED"
+          }
+        }
+      ]
+    }
+  }
+}

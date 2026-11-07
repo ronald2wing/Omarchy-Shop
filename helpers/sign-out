@@ -1,0 +1,29 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: runs `shopify auth logout` (CI); prints {"ok":true}.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module SignOut
+      NAME = 'sign-out'
+      USAGE = <<~TEXT
+        usage: helpers/sign-out [--help]
+
+        Run `auth logout --no-input` (CI). Per-store sales access from
+        `store auth` is separate and is not touched by Shop.
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE) do |_options, overall|
+          Account.log_out!(Runtime.locate, deadline: overall.cap(Shop.seconds(:call, NAME)))
+          { 'ok' => true }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::SignOut.run(ARGV) if $PROGRAM_NAME == __FILE__

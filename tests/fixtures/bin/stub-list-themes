@@ -1,0 +1,12 @@
+#!/usr/bin/ruby --disable-gems
+# Helper double for tests/qml/model_doubles_smoke.qml: list-themes rate limited (retryAfter 1 s) on its first run per --store, a theme list after that; the count lives in $HOME/.stub-list-themes-<store>.
+
+store = ARGV.find { |a| a.start_with?('--store=') }.to_s.delete_prefix('--store=')
+counter = File.join(ENV.fetch('HOME'), ".stub-list-themes-#{store}")
+runs = File.read(counter).to_i + 1 rescue 1
+File.write(counter, runs.to_s)
+if runs == 1
+  puts '{"ok":false,"error":{"code":"rate_limited","message":"Shopify is limiting requests","retryAfter":1}}'
+  exit 1
+end
+puts '{"ok":true,"themes":[{"id":"160258293983","name":"Dawn","role":"live"}]}'

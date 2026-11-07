@@ -1,0 +1,6 @@
+{
+  "error": {
+    "type": "unknown",
+    "message": "Error fetching assets: sections/header.liquid"
+  }
+}

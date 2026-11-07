@@ -1,0 +1,178 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: fetches one store's sales for one range (today, yesterday or the completed history) and prints the derived shape as one JSON line.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module FetchSales
+      NAME = 'fetch-sales'
+      RANGES = %w[today yesterday history].freeze
+      USAGE = <<~TEXT
+        usage: helpers/fetch-sales --store=<domain> --range=today|yesterday|history [--timezone=Area/City] [--with-traffic]
+
+        today      today so far: order count, sales (paged, ≤#{Sales::MAX_PAGES} pages), newest order,
+                   the day's start (startEpoch, s; its end is dayEndsAt), [epoch ms, amount] per order
+                   (orderPoints, for the hourly chart) and with --with-traffic the session
+                   funnel plus hourly sessions (trafficHourly).
+        yesterday  [epoch ms, amount] per order (today's same-time baseline), the
+                   hourly Analytics total sales (salesHourly, the chart)
+                   and hourly sessions; salesHourly[].hour and trafficHourly[].hour
+                   are whole hours since startEpoch (the wall-clock hour except on
+                   DST days).
+        history    yesterday, last 7/14/30 complete days (with the previous window),
+                   last 12 months and lifetime, from five ShopifyQL queries.
+        Prints {"ok":true,"domain","currency","timezone","localDate","utcOffsetMinutes",
+        "dayEndsAt","fetchedAt","truncated",<range>:{…}}. `truncated` says paging stopped
+        early (budget, a throttled or timed-out page, or more than #{Sales::MAX_PAGES} pages).
+        Without --timezone, today and yesterday read the store's zone first.
+      TEXT
+      # Seconds of the helper budget kept free when deciding to fetch one
+      # more page: a warm orders page of the pinned CLI takes 5-7 s.
+      PAGE_RESERVE = 8
+      # Seconds of the helper budget a wait between pages always leaves.
+      PACE_MARGIN = 0.5
+      # What every range's fetch reads: the located CLI, the store, the helper
+      # deadline, the per-call cap in seconds and the last GraphQL budget
+      # (set by execute, read by pace).
+      Ctx = Struct.new(:located, :domain, :overall, :call_seconds, :budget, keyword_init: true)
+      # The first page of a store-local day: its payload, the shop's currency
+      # and zone, the StoreClock boundaries and the orders filter they gave.
+      Window = Data.define(:data, :currency, :timezone, :clock, :filter)
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: ->(options) { "#{NAME} #{range!(options['range'])}" }, usage: USAGE,
+                                         values: %w[store range timezone], switches: %w[with-traffic],
+                                         required: %w[store range]) do |options, overall|
+          domain = Validate.domain!(options['store'])
+          tz = options['timezone'] && Validate.timezone!(options['timezone'])
+          range = options['range']
+          ctx = Ctx.new(located: Runtime.locate, domain: domain, overall: overall, call_seconds: Shop.seconds(:call, "#{NAME} #{range}"))
+          case range
+          when 'history' then history(ctx)
+          when 'today' then today(ctx, tz, options['with-traffic'] == true)
+          else yesterday(ctx, tz)
+          end
+        end
+      end
+
+      # The --range value, which names the helper's TIMING row.
+      def range!(range)
+        RANGES.include?(range) ? range : Validate.reject!("unknown range: #{Text.quote(range)}")
+      end
+
+      def execute(ctx, query, variables = nil)
+        data, budget = Shopify.execute(ctx.located, ctx.domain, query, variables: variables, deadline: ctx.overall.cap(ctx.call_seconds))
+        ctx.budget = budget if budget
+        data
+      end
+
+      # The fields every fetch-sales result carries; `truncated` is false for
+      # history, which is not paged.
+      def envelope(ctx, currency, tz, clock, truncated: false)
+        { 'ok' => true, 'domain' => ctx.domain, 'fetchedAt' => (Shop.now.to_f * 1000).round,
+          'currency' => currency, 'timezone' => tz, 'localDate' => clock[:local_date],
+          'utcOffsetMinutes' => clock[:utc_offset_minutes], 'dayEndsAt' => clock[:day_ends_at_ms],
+          'truncated' => truncated }
+      end
+
+      def store_tz(ctx, given)
+        return given if given
+
+        _, tz = Sales.shop_meta(execute(ctx, Queries::SHOP_META))
+        tz
+      end
+
+      def history(ctx)
+        data = execute(ctx, Queries::HISTORY)
+        currency, tz = Sales.shop_meta(data)
+        clock = StoreClock.boundaries(tz)
+        envelope(ctx, currency, tz, clock).merge('history' => SalesHistory.derive(data, clock[:local_date]))
+      end
+
+      # Run `first_query` for the store-local window of `tz`; if the shop's
+      # zone differs, recompute the window and run it once more. The block
+      # builds the orders filter from the window's boundaries. Returns the
+      # Window.
+      def windowed(ctx, tz, first_query)
+        2.times do |attempt|
+          clock = StoreClock.boundaries(tz)
+          filter = yield clock
+          data = execute(ctx, first_query, { 'filter' => filter })
+          currency, shop_tz = Sales.shop_meta(data)
+          if shop_tz == tz || attempt == 1
+            return Window.new(data: data, currency: currency, timezone: tz, clock: clock, filter: filter)
+          end
+
+          tz = shop_tz
+        end
+      end
+
+      # Collect every page after the window's first; returns [all nodes,
+      # truncated] (truncated: a next page was left unfetched). Paging stops
+      # early (truncated) when the helper budget runs low or a later page is
+      # throttled or times out, so a busy store still gets a partial total
+      # instead of an error that throws away what was fetched. Between pages
+      # the GraphQL budget is given time to restore when it could not cover
+      # another page.
+      def remaining_pages(ctx, window)
+        nodes, more, cursor = Sales.page(window.data)
+        all = nodes.dup
+        pages = 1
+        reserve = Shop.seconds(:page_reserve, PAGE_RESERVE)
+        while more && pages < Sales::MAX_PAGES && ctx.overall.remaining > reserve
+          pace(ctx)
+          begin
+            data = execute(ctx, Queries::ORDERS_PAGE, { 'filter' => window.filter, 'after' => cursor })
+          rescue Failure => e
+            raise unless %w[timeout rate_limited].include?(e.code)
+
+            break
+          end
+          nodes, more, cursor = Sales.page(data)
+          all.concat(nodes)
+          pages += 1
+        end
+        [all, more]
+      end
+
+      # Wait until the GraphQL budget can cover two pages of the last cost
+      # (Throttle.page_wait), never into the last PACE_MARGIN s of the
+      # helper budget; a stop ends the wait at once (Signals.sleep).
+      def pace(ctx)
+        wait = Throttle.page_wait(ctx.budget)
+        Signals.sleep([wait, ctx.overall.remaining - PACE_MARGIN].min) if wait
+      end
+
+      def today(ctx, tz, with_traffic)
+        query = with_traffic ? Queries::TODAY_WITH_TRAFFIC : Queries::TODAY
+        window = windowed(ctx, store_tz(ctx, tz), query) do |c|
+          # Test orders never count (as in ShopifyQL total_sales, which
+          # Yesterday and every completed period use).
+          "created_at:>='#{StoreClock.iso(c[:today_start])}' AND test:false"
+        end
+        nodes, truncated = remaining_pages(ctx, window)
+        today = Sales.today(window.data, nodes, window.clock[:today_start], with_traffic: with_traffic)
+        envelope(ctx, window.currency, window.timezone, window.clock, truncated: truncated).merge('today' => today)
+      end
+
+      def yesterday(ctx, tz)
+        window = windowed(ctx, store_tz(ctx, tz), Queries::YESTERDAY) do |c|
+          "created_at:>='#{StoreClock.iso(c[:yesterday_start])}' AND created_at:<'#{StoreClock.iso(c[:today_start])}' AND test:false"
+        end
+        nodes, truncated = remaining_pages(ctx, window)
+        # MAX_PAGES requested pages of 250 never exceed MAX_ORDER_POINTS, but
+        # Sales.page does not bound a page's size, so a page larger than
+        # requested still marks the capped orderPoints as truncated.
+        truncated ||= nodes.size > Sales::MAX_ORDER_POINTS
+        clock = window.clock
+        yesterday = Sales.yesterday(window.data, nodes, date: clock[:yesterday_date], start: clock[:yesterday_start], stop: clock[:today_start])
+        envelope(ctx, window.currency, window.timezone, clock, truncated: truncated).merge('yesterday' => yesterday)
+      end
+    end
+  end
+end
+
+Shop::Helpers::FetchSales.run(ARGV) if $PROGRAM_NAME == __FILE__

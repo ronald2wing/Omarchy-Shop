@@ -1,0 +1,56 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: shows one new-order notification (notify-send) and optionally plays the order sound; bounded, body markup neutralised.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module NotifyOrder
+      NAME = 'notify-order'
+      USAGE = <<~TEXT
+        usage: helpers/notify-order --title=<text> --body=<text> [--sound]
+
+        Runs `notify-send --app-name=Shop -- <title> <body>` (each at most #{Text::NOTIFICATION_MAX}
+        chars, control characters stripped except newlines). Notification
+        daemons read the body as markup (Omarchy's decodes entities before it
+        restores tags and links), so its < > & become the look-alikes ‹ › ＆
+        (never escaped: a decoded escape would be markup again). In both the
+        title and the body every :// becomes :⁄⁄ (U+2044), so the daemon
+        offers no URL as the click target and links none. With --sound plays
+        assets/sounds/new-order.oga with pw-play, else paplay. Missing tools
+        are skipped: {"ok":true,"notified":bool,"sound":bool|null}.
+      TEXT
+      SOUND = File.join(ROOT, 'assets', 'sounds', 'new-order.oga')
+      OUTPUT_CAP = 16 * KIB
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[title body], switches: %w[sound],
+                                         required: %w[title body]) do |options, overall|
+          title = Text.notification(options['title'])
+          body = Text.notification(options['body'], neutralise: true)
+          Validate.reject!('empty title') if title.strip.empty?
+          notified = Tools.available?(:notify_send) && ran?(:notify_send, ['--app-name=Shop', '--', title, body], overall)
+          sound = nil
+          if options['sound']
+            # pw-play first, then paplay: a pw-play that exists but fails (a
+            # PulseAudio-only system with pipewire tools installed) falls back.
+            players = %i[pw_play paplay].select { |name| Tools.available?(name) }
+            sound = players.any? { |player| ran?(player, [SOUND], overall) }
+          end
+          { 'ok' => true, 'notified' => notified, 'sound' => sound }
+        end
+      end
+
+      # True when tool `name` ran to a zero exit in time; neither tool prints
+      # anything worth keeping.
+      def ran?(name, args, overall)
+        result = Tools.run(name, args, deadline: overall.cap(Shop.seconds(:call, NAME)), max_stdout: OUTPUT_CAP)
+        result.exit_code == 0 && !result.timed_out
+      end
+    end
+  end
+end
+
+Shop::Helpers::NotifyOrder.run(ARGV) if $PROGRAM_NAME == __FILE__

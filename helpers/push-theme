@@ -1,0 +1,51 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: pushes a theme folder to a target theme after backing that theme up; always --nodelete.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module PushTheme
+      NAME = 'push-theme'
+      USAGE = <<~TEXT
+        usage: helpers/push-theme --store=<domain> --folder=<folder> --target=live|<id> [--allow-live] [--confirm-live]
+
+        Backs up the target theme, then `theme push --nodelete`; a live target
+        needs both --allow-live and --confirm-live. When the push fails after
+        the backup was taken, the failure line carries its "backupId". Every
+        line carries "writeStarted" (false: the theme was not touched; true:
+        the CLI push had begun).
+        Result warnings are objects: {"kind":"issue","path","message"} for files the
+        CLI rejected.
+        Folders with a shopify.theme.toml (in the folder or any parent),
+        symlinks, hardlinked files, special files or over #{TreeWalk::MAX_ENTRIES}
+        entries are refused. One theme action per store at a time (a running preview counts).
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[store folder target],
+                                         switches: %w[allow-live confirm-live], required: %w[store folder target],
+                                         line_fields: { 'writeStarted' => false, 'backupId' => nil }) do |options|
+          push(Validate.domain!(options['store']), options['folder'], Validate.target!(options['target']),
+               allow_live: options['allow-live'] == true, confirm_live: options['confirm-live'] == true)
+        end
+      end
+
+      def push(domain, folder, target, allow_live:, confirm_live:)
+        report = ThemeFolder.check!(folder, mode: :push)
+        ThemeJob.run(domain, helper: NAME) do |job|
+          theme = job.target!(target)
+          backup_id, pushed = job.push_with_backup!(theme, before: 'push', allow_live: allow_live, confirm_live: confirm_live) do
+            ThemeFolder.check!(folder, mode: :push)['folder']
+          end
+          { 'ok' => true, 'theme' => theme, 'folder' => report['folder'], 'backupId' => backup_id,
+            'warnings' => pushed[:issues], 'partial' => pushed[:partial] }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::PushTheme.run(ARGV) if $PROGRAM_NAME == __FILE__

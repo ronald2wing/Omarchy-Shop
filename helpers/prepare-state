@@ -1,0 +1,31 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: creates Shop's config/state dirs at 0700 (refusing symlinked or foreign dirs); prints {"ok":true}.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module PrepareState
+      NAME = 'prepare-state'
+      USAGE = <<~TEXT
+        usage: helpers/prepare-state [--help]
+
+        Create ~/.config/shop and ~/.local/state/shop (backups, locks, run,
+        bin) at mode 0700. A dir that is a symlink or owned by another user
+        fails with unsafe_state_dir. Existing config.json,
+        config.json.old and cache.json are set to 0600. Prints one JSON line.
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE) do |_options|
+          Paths.tighten_service_files!
+          { 'ok' => true }
+        end
+      end
+    end
+  end
+end
+
+Shop::Helpers::PrepareState.run(ARGV) if $PROGRAM_NAME == __FILE__

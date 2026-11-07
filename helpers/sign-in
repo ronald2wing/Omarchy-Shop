@@ -1,0 +1,84 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: clears any expired session, runs the interactive `shopify auth login --alias=shop`, then re-probes the session.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module SignIn
+      NAME = 'sign-in'
+      USAGE = <<~TEXT
+        usage: helpers/sign-in [--help]
+
+        Probe the session; when already signed in, print it and stop. A
+        probe that fails for any other reason (network, rate limit...)
+        exits with that error and touches nothing. Only when signed out:
+        run `auth logout --no-input` (CI) to clear any expired session,
+        then `auth login --alias=shop` (interactive: the browser opens; CI
+        is not set), then probe again. Prints the check-account shape;
+        still signed out afterwards is signed_out; a failed
+        login whose re-probe is not signed in exits with the login error.
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE) do |_options, overall|
+          sign_in(Runtime.interactive_safe!(Runtime.locate), overall)
+        end
+      end
+
+      def sign_in(located, overall)
+        probe_s = Shop.seconds(:call, NAME, 'probe')
+        # Strict: an unknown probe (network down, rate limited...) raises
+        # here, so a working session is never logged out on a guess.
+        status, = Account.probe(located, deadline: overall.cap(probe_s), strict: true)
+        return answer(status) if status != 'signed_out'
+
+        clear_session(located, overall)
+        login_error = log_in(located, overall, probe_s)
+        begin
+          status, = Account.probe(located, deadline: overall.cap(probe_s), strict: true)
+        rescue Failure => e
+          raise if %w[timeout terminated].include?(e.code)
+
+          raise login_error || e
+        end
+        raise Failure.new('signed_out', login_error ? login_error.message : 'still signed out of Shopify') if status == 'signed_out'
+
+        answer(status)
+      end
+
+      # The check-account shape for a probed session.
+      def answer(status)
+        { 'ok' => true, 'cli' => Runtime.status, 'account' => Account.object(status) }
+      end
+
+      # An expired session stays in the CLI's session store, and with any
+      # session stored `auth login` asks "Which account would you like to
+      # use?", which fails on Shop's non-TTY stdin before the browser opens.
+      # Logging out first empties the store, so login goes straight to the
+      # browser flow. Only a stop is fatal here.
+      def clear_session(located, overall)
+        Account.log_out!(located, deadline: overall.cap(Shop.seconds(:call, NAME, 'logout')))
+      rescue Failure => e
+        raise if e.code == 'terminated'
+      end
+
+      # The interactive login, leaving `probe_s` of the budget for the
+      # re-probe. Returns its Failure (nil on success) so the re-probe can
+      # decide; an INTERACTIVE_FATAL code fails the helper at once.
+      def log_in(located, overall, probe_s)
+        deadline = overall.cap([Shop.seconds(:call, NAME, 'login'), overall.remaining - probe_s].min)
+        Shopify.call(located, ['auth', 'login', '--alias=shop'], interactive: true, deadline: deadline, json: false)
+        nil
+      rescue Failure => e
+        raise if Shopify::INTERACTIVE_FATAL.include?(e.code)
+
+        e
+      end
+    end
+  end
+end
+
+Shop::Helpers::SignIn.run(ARGV) if $PROGRAM_NAME == __FILE__

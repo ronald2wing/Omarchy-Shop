@@ -1,0 +1,54 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: installs the pinned Node and @shopify/cli with `mise install` (never `mise use`, never -g), then verifies.
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module InstallCli
+      NAME = 'install-cli'
+      USAGE = <<~TEXT
+        usage: helpers/install-cli --consent=install
+
+        Runs, after the user confirmed in Shop's dialog:
+          mise install node@#{NODE_PIN}
+          mise exec node@#{NODE_PIN} -- mise install npm:@shopify/cli@#{CLI_PIN}
+        then checks that `shopify version` prints #{CLI_PIN}. `mise install` does
+        not change any mise config file. Without --consent=install it fails
+        with consent_required; without /usr/bin/mise, with mise_missing.
+      TEXT
+      # The end of mise's output kept for the failure message.
+      TAIL = 64 * KIB
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, values: %w[consent]) do |options, overall|
+          raise Failure.new('consent_required', 'install needs consent') unless options['consent'] == 'install'
+          raise Failure.new('mise_missing', 'mise is not installed') unless Tools.available?(:mise)
+
+          mise_step(['install', "node@#{NODE_PIN}"], overall, 'node')
+          mise_step(['exec', "node@#{NODE_PIN}", '--', Tools.path(:mise), 'install', "npm:@shopify/cli@#{CLI_PIN}"], overall, 'cli')
+          located = Runtime.locate
+          out = Shopify.call(located, %w[version --no-input], deadline: overall.cap(Shop.seconds(:call, NAME, 'verify')), json: false)
+          raise Failure.new('cli_failed', "installed version is #{Text.quote(out.strip)}, not #{CLI_PIN}") unless out.split.include?(CLI_PIN)
+
+          { 'ok' => true }
+        end
+      end
+
+      # One `mise` step; mise's own failure is tool_failed (never the CLI's),
+      # with the last line it printed.
+      def mise_step(args, overall, step)
+        result = Tools.run(:mise, args, deadline: overall.cap(Shop.seconds(:call, NAME, step)), max_stdout: TAIL, stdout_mode: :tail)
+        raise Failure.new('timeout', "mise #{args.first} timed out") if result.timed_out
+        return if result.exit_code&.zero?
+
+        details = Text.details("#{result.stdout}\n#{result.stderr_tail}")
+        raise Failure.new('tool_failed', "mise #{args.first} failed: #{details.last || "exit status #{result.exit_code}"}", details: details)
+      end
+    end
+  end
+end
+
+Shop::Helpers::InstallCli.run(ARGV) if $PROGRAM_NAME == __FILE__

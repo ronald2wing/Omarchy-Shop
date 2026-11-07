@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "The Admin GraphQL API responded unsuccessfully with the HTTP status 502.\n\nRequest ID: 9c1e2b7a-0d4f-4a63-8e5b-1f2a3c4d5e6f",
+    "tryMessage": "Try again in a few minutes."
+  }
+}

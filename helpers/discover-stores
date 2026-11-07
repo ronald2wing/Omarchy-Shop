@@ -1,0 +1,115 @@
+#!/usr/bin/env -S -u RUBYOPT -u RUBYLIB -u RUBYGEMS_GEMDEPS -u BUNDLE_GEMFILE -u BUNDLE_PATH -u BUNDLE_BIN_PATH -u GEM_HOME -u GEM_PATH /usr/bin/ruby --disable-gems
+# Helper: finds every store on the account (auth sessions + all organizations) and streams JSON lines ending in "done".
+
+require_relative '../lib/shop'
+
+module Shop
+  module Helpers
+    module DiscoverStores
+      NAME = 'discover-stores'
+      CONCURRENCY = TIMING.fetch(NAME).fetch(:concurrency)
+      USAGE = <<~TEXT
+        usage: helpers/discover-stores [--help]
+
+        JSON lines:
+          {"event":"partial","stores":[{domain}]}     stores with sales access, as soon as known
+          {"event":"account","status":"signed_in|signed_out|unknown"}
+          {"event":"done","ok":true,"stores":[{domain,name}],"truncated":bool}
+        Multi-org accounts list every organization with shops (concurrency
+        #{CONCURRENCY}); a failed organization contributes no stores. `truncated`
+        is set when the merged list was cut at #{Stores::MAX_DISCOVERED} or the CLI cut
+        a store listing.
+      TEXT
+
+      module_function
+
+      def run(argv, **overrides)
+        HelperMain.main(argv, overrides, helper: NAME, usage: USAGE, last_event: 'done') do |_options, overall|
+          discover(Runtime.locate, overall)
+        end
+      end
+
+      def calls(located, list, overall, on_done: nil, concurrency: CONCURRENCY)
+        Shopify.call_all(located, list, concurrency: concurrency, overall: overall,
+                                        deadline: Shop.seconds(:call, NAME), on_done: on_done)
+      end
+
+      def discover(located, overall)
+        session_domains = []
+        partial = lambda do |index, outcome|
+          next unless index.zero?
+
+          session_domains = parse(outcome, []) { |body| Stores.from_auth_sessions(body) }
+          stores = session_domains.first(Stores::MAX_DISCOVERED).map { |d| { 'domain' => d } }
+          HelperMain.emit({ 'event' => 'partial', 'stores' => stores })
+        end
+        first = calls(located, [Stores::AUTH_LIST_ARGS, Stores::LIST_ARGS], overall, on_done: partial, concurrency: 2)
+        kind, listing = first[1]
+        # Account.status_of is the one status mapping (check-account and
+        # sign-in read it through Account.probe).
+        session = Account.status_of(listing)
+        HelperMain.emit({ 'event' => 'account', 'status' => Account.public_status(session) })
+
+        rows, cut = parse([kind, listing], [[], false]) { |body| Stores.from_store_list(body) }
+        if session == 'multi_org' && !overall.expired?
+          org_rows, org_cut = org_rows(located, overall)
+          rows += org_rows
+          cut ||= org_cut
+        end
+        named = rows.each_with_object({}) { |r, h| h[r['domain']] = true if r['name'] }
+        names = overall.expired? ? {} : lookup_names(located, session_domains.reject { |d| named[d] }, overall)
+        stores, truncated = Stores.merge(session_domains: session_domains, rows: rows, names: names)
+        { 'event' => 'done', 'ok' => true, 'stores' => stores, 'truncated' => truncated || cut }
+      end
+
+      # What the block reads from a call_all outcome ([:ok, body] or
+      # [:error, Failure]), or `fallback` when the call failed or its body
+      # is malformed: one failed listing never fails the discovery. A stop
+      # still propagates.
+      def parse(outcome, fallback)
+        kind, body = outcome
+        return fallback unless kind == :ok
+
+        yield body
+      rescue Failure => e
+        raise if e.code == 'terminated'
+
+        fallback
+      end
+
+      # [rows, truncated] across every organization with shops.
+      def org_rows(located, overall)
+        orgs = calls(located, [Stores::ORG_LIST_ARGS], overall, concurrency: 1).first
+        ids = parse(orgs, []) { |body| Stores.org_ids(body) }
+        return [[], false] if ids.empty? || overall.expired?
+
+        rows = []
+        cut = false
+        calls(located, ids.map { |id| Stores.org_store_list_args(id) }, overall).each do |outcome|
+          # An organization whose listing timed out (or never started
+          # because the helper's budget ran out) is missing from the
+          # merged list: that is a cut list, not a complete one.
+          kind, error = outcome
+          cut ||= error.code == 'timeout' if kind == :error
+          org, org_cut = parse(outcome, [[], false]) { |body| Stores.from_store_list(body) }
+          rows.concat(org)
+          cut ||= org_cut
+        end
+        [rows, cut]
+      end
+
+      def lookup_names(located, domains, overall)
+        return {} if domains.empty?
+
+        list = domains.map { |d| Shopify.execute_args(d, Queries::SHOP_NAME) }
+        names = {}
+        calls(located, list, overall).each_with_index do |(kind, body), i|
+          names[domains[i]] = Json.dig(body, 'data', 'shop', 'name') if kind == :ok
+        end
+        names
+      end
+    end
+  end
+end
+
+Shop::Helpers::DiscoverStores.run(ARGV) if $PROGRAM_NAME == __FILE__

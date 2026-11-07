@@ -1,1301 +1,754 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import "Model.js" as M
+import "model"
+import "js/config.mjs" as Config
+import "js/errors.mjs" as Errors
+import "js/snapshot.mjs" as Snapshot
+import "js/text.mjs" as TextUtil
 
-// Shop — headless service. Owns the IPC target the bar widget talks to,
-// polls per-store sales, and runs theme push/pull. All external work shells
-// out to `shopify` via bin/sales.sh, bin/theme.sh, and bin/discover-stores.sh;
-// no credentials live here (auth stays in the Shopify CLI state, one `store auth`
-// per store).
+// Shop's headless service: the API the bar widget calls, the IpcHandler,
+// and the composition of model/*. It publishes one immutable `snapshot`
+// (at most every 250 ms). The IpcHandler carries only reads, refreshes,
+// non-destructive actions, cancels and request* methods: every push, pull,
+// restore, install, sign-out, removal and config change is a QML-only
+// method reachable from this plugin's own widget, and a request only opens
+// the panel's confirmation dialog.
 //
-// A `service` kind receives no `settings` property, so every tunable lives in
-// the plugin's own config file (~/.config/shop/config.json), read through
-// FileView and mutated over IPC.
+// A service gets no `settings`; tunables live in ~/.config/shop/config.json.
 Item {
   id: root
 
-  // Injected by Omarchy's ensureService.
-  property var shell: null
+  // Injected by the shell's ensureService (only manifest is used).
   property var manifest: null
+  // Tests inject Consent's clock (a function returning ms).
+  property alias consentClock: consent.clock
 
-  readonly property string pluginId: "shop"
   readonly property string home: Quickshell.env("HOME")
-  readonly property string configDir: home + "/.config/shop"
-  readonly property string configPath: configDir + "/config.json"
-  readonly property string stateDir: home + "/.local/state/shop"
-  readonly property string statePath: stateDir + "/state.json"
-  // Pre-push snapshots of each store's live theme, taken by bin/theme.sh.
-  readonly property string backupsDir: stateDir + "/backups"
-  readonly property string sourceDir:
-    manifest && manifest.__sourceDir
-      ? String(manifest.__sourceDir)
-      : home + "/.config/omarchy/plugins/" + pluginId
+  // manifest.json is the one place the version lives.
+  readonly property string version: root.manifest && root.manifest.version ? String(root.manifest.version) : ""
 
-  property var config: ({ stores: [] })
-  // domain -> poll-result object. resultFor() seeds the full field shape and is
-  // the single source of truth for it, so the shape isn't repeated here.
-  // Null-prototype so a domain like "constructor"/"__proto__" can't collide
-  // with Object.prototype members.
-  property var results: Object.create(null)
-  // domain -> bool (a sales poll is in flight for this store)
-  property var syncing: Object.create(null)
-  // domain -> bool (a theme push/pull is in flight for this store). Split from
-  // `syncing` so a theme op doesn't make the card show the sales "syncing" state.
-  property var themeSyncing: Object.create(null)
-  // domain -> bool (last poll authenticated; unset until first poll result)
-  property var authed: Object.create(null)
-  // domain -> number (last-seen today order count). Set on the first successful
-  // poll; a later poll with a higher count fires a new-order notification.
-  property var prevOrders: Object.create(null)
-  // domain -> bool (a `theme dev` live-preview is running for this store)
-  property var devRunning: Object.create(null)
-  // domain -> string (preview URL captured from the dev process stdout)
-  property var devUrl: Object.create(null)
-  // domain -> live `theme dev` Process (one per store, long-running)
-  property var devProcesses: Object.create(null)
-  // domain -> array of same-time-of-day sessions snapshots {t, sessions,
-  // visitors, cvr, atc, checkoutCvr}, persisted to history.json.
-  // ShopifyQL FROM sessions is day-granular, so it cannot answer "yesterday at
-  // this same time" for the sessions stats — recording local snapshots is the
-  // only way to show that ▲/▼ trend (shown only once ~24h of snapshots have
-  // accumulated).
-  property var history: Object.create(null)
+  // The published snapshot (shape documented in CONTRIBUTING). A new
+  // object on every publish, with per-store objects reused when nothing
+  // about that store changed; never mutate it.
+  readonly property var snapshot: internal.snapshot
+  // Valid store domains in display order; reassigned only when it changes.
+  readonly property var storeOrder: internal.storeOrder
 
-  readonly property int refreshIntervalSec:
-    Math.max(1, parseInt(String(config.refreshIntervalSec), 10) || 60)
+  // ---- reads -------------------------------------------------------------
 
-  // New-order notifications are on by default; `notifyNewOrders: false` in
-  // config.json (or the config-mode toggle) silences the notify-send.
-  readonly property bool notifyNewOrders: config.notifyNewOrders !== false
-  // Set when the `shopify` binary is absent (by checkCli or a sales poll that
-  // hits the guard) and cleared on the next successful probe/poll — drives the
-  // panel's warning banner.
-  property bool cliMissing: false
-  // True while `mise use -g npm:@shopify/cli@4.7.0` is in flight; the banner
-  // shows "Installing…" and hides the Install button.
-  property bool cliInstalling: false
-  // stderr from a failed CLI install, surfaced as a second line in the banner.
-  property string cliInstallError: ""
-
-  // domain -> live sales Process instance. One Process per store, all fetched
-  // concurrently; startFetch dedups so a store already in flight isn't
-  // re-spawned.
-  property var fetches: Object.create(null)
-
-  // Theme op bookkeeping: which store and direction the running op belongs to.
-  property string themeAction: ""
-  property string themeDomain: ""
-  property bool themeTimedOut: false
-
-  // Store discovery (discoverStores): read the connected stores from the auth
-  // session list, then enrich each one's real name with a fast per-store
-  // `shop { name }` query, writing the {name, domain} list to discovered.json
-  // for the widget to pick from. Discovery is async, so the IPC method only
-  // fires it; the result lands in the state file.
-  property bool discovering: false
-  property bool discoveryTimedOut: false
-  property var discoveryFound: []    // accumulated {name, domain}
-  property var discoveryPending: null // subdomain -> true (phase-1 names still to enrich)
-  // No Shopify account session (non-interactive probe), persisted to state.json;
-  // drives the widget's login prompt.
-  property bool loginRequired: false
-
-  // ------------------------------------------------------------- helpers
-
-  function findStore(domain) {
-    var dm = String(domain || "")
-    var list = config.stores || []
-    for (var i = 0; i < list.length; i++) {
-      if (list[i] && String(list[i].domain) === dm) return list[i]
-    }
-    return null
+  // The last published snapshot (at most 250 ms old), never a fresh build.
+  function status() {
+    return Snapshot.statusSummary(internal.lastBuild.snapshot, root.version)
   }
 
-  function resultFor(domain) {
-    var dm = String(domain || "")
-    var r = results[dm]
-    if (!r) {
-      r = { today: null, week: null, month: null, biweek: null, allTime: null, yesterday: null, yesterdaySoFar: null, statsToday: null, statsYesterday: null, yesterdayStatsSoFar: null, statsWeek: null, statsBiweek: null, statsMonth: null, statsAll: null, weekSeries: [], biweekSeries: [], monthSeries: [], allTimeSeries: [], weekSessionsSeries: [], biweekSessionsSeries: [], monthSessionsSeries: [], allTimeSessionsSeries: [], lastError: null,
-            lastUpdated: 0, lastSyncOutput: "", lastSyncError: "" }
-      results[dm] = r
-    }
-    return r
-  }
+  // ---- refresh -----------------------------------------------------------
 
-  // Every parsed range maps to the same {sales, orders} shape, with nulls
-  // preserved so a store that has not reported a figure yet stays null.
-  function pickRange(x) {
-    return { sales: x ? x.sales : null, orders: x ? x.orders : null }
-  }
-
-  // The widget's contract: one entry per store, merging config + poll results.
-  function stateObject() {
-    var stores = []
-    var list = config.stores || []
-    for (var i = 0; i < list.length; i++) {
-      var s = list[i]
-      if (!s || !s.domain) continue
-      var dm = String(s.domain)
-      var r = results[dm]
-      stores.push({
-        name: String(s.name || ""),
-        domain: dm,
-        currency: (r && r.currency) ? r.currency : "$",
-        today: r && r.today ? r.today : null,
-        week: r && r.week ? r.week : null,
-        month: r && r.month ? r.month : null,
-        biweek: r && r.biweek ? r.biweek : null,
-        allTime: r && r.allTime ? r.allTime : null,
-        yesterday: r && r.yesterday ? r.yesterday : null,
-        yesterdaySoFar: r && r.yesterdaySoFar ? r.yesterdaySoFar : null,
-        statsToday: r && r.statsToday ? r.statsToday : null,
-        statsYesterday: r && r.statsYesterday ? r.statsYesterday : null,
-        yesterdayStatsSoFar: r && r.yesterdayStatsSoFar ? r.yesterdayStatsSoFar : null,
-        statsWeek: r && r.statsWeek ? r.statsWeek : null,
-        statsBiweek: r && r.statsBiweek ? r.statsBiweek : null,
-        statsMonth: r && r.statsMonth ? r.statsMonth : null,
-        statsAll: r && r.statsAll ? r.statsAll : null,
-        weekSeries: r && r.weekSeries ? r.weekSeries : [],
-        biweekSeries: r && r.biweekSeries ? r.biweekSeries : [],
-        monthSeries: r && r.monthSeries ? r.monthSeries : [],
-        allTimeSeries: r && r.allTimeSeries ? r.allTimeSeries : [],
-        weekSessionsSeries: r && r.weekSessionsSeries ? r.weekSessionsSeries : [],
-        biweekSessionsSeries: r && r.biweekSessionsSeries ? r.biweekSessionsSeries : [],
-        monthSessionsSeries: r && r.monthSessionsSeries ? r.monthSessionsSeries : [],
-        allTimeSessionsSeries: r && r.allTimeSessionsSeries ? r.allTimeSessionsSeries : [],
-        lastUpdated: r && r.lastUpdated ? r.lastUpdated : 0,
-        lastError: r && r.lastError != null ? r.lastError : null,
-        lastSyncOutput: r && r.lastSyncOutput ? r.lastSyncOutput : "",
-        lastSyncError: r && r.lastSyncError ? r.lastSyncError : "",
-        syncing: syncing[dm] === true,
-        themeSyncing: themeSyncing[dm] === true,
-        themeAction: root.themeAction,
-        authed: authed[dm] === true,
-        devRunning: devRunning[dm] === true,
-        devUrl: devUrl[dm] ? devUrl[dm] : ""
-      })
-    }
-    return { notifyNewOrders: root.notifyNewOrders, cliMissing: root.cliMissing,
-             cliInstalling: root.cliInstalling,
-             cliInstallError: root.cliInstallError, loginRequired: root.loginRequired, stores: stores }
-  }
-
-  function writeState() {
-    stateFile.setText(JSON.stringify(stateObject(), null, 2) + "\n")
-  }
-
-  function persistConfig() {
-    configFile.setText(JSON.stringify(config, null, 2) + "\n")
-  }
-
-  function applyConfig(raw) {
-    var parsed
-    try {
-      parsed = JSON.parse(String(raw || ""))
-    } catch (e) {
-      parsed = null
-    }
-    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.stores)) {
-      config = { refreshIntervalSec: 60, stores: [] }
-    } else {
-      config = parsed
-    }
-    writeState()
-    // First load and any later edit (own write or external) both repoll soon,
-    // so a new store shows figures without waiting out the full interval.
-    refreshDebounce.restart()
-  }
-
-  // ------------------------------------------------------------- sales poll
-
-  // Store-independent CLI presence probe: `command -v shopify`, the same
-  // semantics as bin/sales.sh's guard (exit 0 = present). Sales polls only run
-  // per store, so with zero stores configured nothing else would ever set
-  // cliMissing and the install banner would never appear. Runs at startup, on
-  // manual refresh, and in the post-install retry loop; the probe persists the
-  // flag so the file-driven widget banner updates.
-  function checkCli() {
-    if (cliProbeProcess.running) return
-    cliProbeProcess.running = true
-  }
-
-  // Non-interactive account-session probe, deduped like checkCli. Used at
-  // startup, on refresh, and by loginProcess.onExited after login.
-  function checkLogin() {
-    startLoginProbe("check")
-  }
-
-  // Start the account probe, or promote one already in flight to a discovery
-  // run. A plain "check" never demotes a probe that is mid-discovery.
-  function startLoginProbe(context) {
-    if (loginProbeProcess.running && context === "check") return
-    loginProbeProcess.context = context
-    if (!loginProbeProcess.running) loginProbeProcess.running = true
-  }
-
-  // Persist the login flag only when it actually changes.
-  function setLoginRequired(required) {
-    if (loginRequired === required) return
-    loginRequired = required
-    writeState()
-  }
-
-  // `refresh` (IPC/manual) repolls everything for freshness; the two cadences
-  // (live 60s / historical hourly) each call their own half.
   function refresh() {
-    // Re-probe even with no stores so a manual refresh re-checks CLI + login.
-    checkCli()
-    checkLogin()
-    var list = config.stores || []
-    if (list.length === 0) {
-      return "ok"
-    }
-    refreshLive()
-    refreshHistorical()
-    return "ok"
+    if (internal.throttled("")) return Errors.rateLimitedLocally()
+    if (!stateDir.ready) stateDir.prepare()
+    account.check()
+    scheduler.refresh(configStore.domains(), false)
+    internal.publish()
+    return Errors.started()
   }
 
-  // Live cadence: today's orders + today's sessions only — the fields that
-  // change during the day. Completed periods are polled hourly, not here.
-  function refreshLive() {
-    var list = config.stores || []
-    for (var i = 0; i < list.length; i++) {
-      if (list[i] && list[i].domain) startFetch(String(list[i].domain), "live")
-    }
-  }
-
-  // Historical cadence: completed periods (week/biweek/month/allTime/yesterday)
-  // + their sessions + timeseries. Cached; does not change during the day.
-  function refreshHistorical() {
-    var list = config.stores || []
-    for (var i = 0; i < list.length; i++) {
-      if (list[i] && list[i].domain) startFetch(String(list[i].domain), "historical")
-    }
-  }
-
-  // Refresh a single store on demand (bar right-click / card glyph). Runs
-  // immediately, concurrent with any other stores' in-flight fetches.
   function refreshStore(domain) {
-    var dm = String(domain || "")
-    if (dm === "") return "error: no domain"
-    startFetch(dm, "live")
-    startFetch(dm, "historical")
-    return "ok"
+    return internal.withStore(domain, s => {
+      if (internal.throttled(s.domain)) return Errors.rateLimitedLocally()
+      scheduler.refresh([s.domain], true)
+      internal.publish()
+      return Errors.started()
+    })
   }
 
-  // Dedup per domain+mode, so a live and historical fetch for the same store
-  // can run concurrently and neither blocks the other.
-  function startFetch(domain, mode) {
-    var dm = String(domain || "")
-    var md = String(mode || "live")
-    var key = dm + ":" + md
-    if (dm === "" || fetches[key]) return
-    syncing[dm] = true
-    writeState()
-    var f = salesFetchComponent.createObject(root, { svc: root, dm: dm, mode: md })
-    if (!f) {
-      syncing[dm] = !!(fetches[dm + ":live"] || fetches[dm + ":historical"])
-      writeState()
-      return
-    }
-    fetches[key] = f
-    f.startedAt = Date.now()
-    f.running = true
+  // One history fetch now: Home calls it by itself when the chosen period
+  // has no figures for a store (never on IPC: a script could make a store
+  // fetch its whole history on a loop).
+  function refreshHistory(domain) {
+    return internal.withStore(domain, s => {
+      const refused = preflight.requireCli() || scheduler.refreshHistory(s.domain)
+      if (refused) return refused
+      internal.publish()
+      return Errors.started()
+    })
   }
 
-  // `syncing` reflects "any fetch in flight": cleared only when both modes are
-  // done (no live or historical ref left in the fetches map).
-  function finishFetch(domain, mode) {
-    var dm = String(domain || "")
-    var md = String(mode || "live")
-    fetches[dm + ":" + md] = undefined
-    syncing[dm] = !!(fetches[dm + ":live"] || fetches[dm + ":historical"])
-    writeState()
+  // ---- stores (config; QML-only) ------------------------------------------
+
+  function addStore(domain, label) {
+    const r = configStore.mutate(c => Config.addStore(c, String(domain || ""), label, discovery.result.stores))
+    if (!r.ok) return { ok: false, error: r.error }
+    return { ok: true, domain: r.domain, showInBar: r.showInBar, shownCount: r.shownCount }
   }
 
-  // Append a same-time-of-day snapshot of the store's sessions stats, throttled
-  // to once per 5 minutes and pruned to a rolling 48h. Called from the live
-  // branch after statsToday lands; `t` changes every write so setText never
-  // skips (a skip would drop the newest snapshot when the rest is unchanged).
-  function recordSnapshot(dm, statsToday) {
-    if (!statsToday) return
-    var now = Date.now()
-    var arr = history[dm]
-    if (Array.isArray(arr) && arr.length) {
-      var last = arr[arr.length - 1]
-      if (last && typeof last.t === "number" && now - last.t < 300000) return
-    }
-    if (!Array.isArray(arr)) { arr = []; history[dm] = arr }
-    arr.push({ t: now, sessions: statsToday.sessions, visitors: statsToday.visitors, cvr: statsToday.cvr, atc: statsToday.atc, checkoutCvr: statsToday.checkoutCvr })
-    var cutoff = now - 172800000
-    history[dm] = arr.filter(function(e) { return e && e.t > cutoff })
-    historyFile.setText(JSON.stringify(root.history, null, 2) + "\n")
+  // label, showInBar and theme (theme.folder, theme.target,
+  // theme.allowLive, or null to unlink).
+  function updateStore(domain, patchJson) {
+    const p = Config.parsePatch(patchJson)
+    if (p.error) return { ok: false, error: p.error }
+    const before = configStore.store(domain)
+    const r = configStore.mutate(c => {
+      const next = Config.applyStorePatch(c, String(domain || ""), p.value, root.home, { allowThemeKeys: true })
+      // A new folder or target under a running job, preview or grant would
+      // leave it working on the old one (a preview with no Stop button, a
+      // pull writing into a folder the store no longer names): refused
+      // like removeStore, before anything is written. A label or showInBar
+      // change never waits.
+      if (next.error) return next
+      if (Config.sameThemeLink(before.theme, Config.findStore(next.config, before.domain).theme)) return next
+      const busy = preflight.requireStoreIdle(before)
+      return busy ? { config: c, error: busy.error } : next
+    })
+    if (!r.ok) return { ok: false, error: r.error }
+    // A folder change is re-inspected by configUpdated (the one owner); a
+    // first theme link fetches the themes list once.
+    const after = configStore.store(domain)
+    if (p.value.theme !== undefined && after.theme && account.cli.status === "ready") themeInfo.listThemesIfStale(after.domain, Infinity)
+    return Errors.ok()
   }
 
-  // Same-time-of-day baseline for the sessions stats: the nearest snapshot to
-  // ~24h ago if it is within ±15 min; null when no snapshot matches.
-  function yesterdayStatsSoFar(dm) {
-    var arr = history[dm]
-    var target = Date.now() - 86400000
-    var best = null
-    var bestDiff = Infinity
-    if (Array.isArray(arr)) {
-      for (var i = 0; i < arr.length; i++) {
-        var e = arr[i]
-        if (!e || typeof e.t !== "number") continue
-        var d = Math.abs(e.t - target)
-        if (d < bestDiff) { bestDiff = d; best = e }
-      }
-    }
-    if (best && bestDiff <= 900000) {
-      return { sessions: best.sessions, visitors: best.visitors, cvr: best.cvr, atc: best.atc, checkoutCvr: best.checkoutCvr }
-    }
-    // No same-time snapshot → no trend. Falling back to full-yesterday would
-    // compare a partial day against a full day (misleading ▼), so return null.
-    return null
+  function moveStore(domain, index) {
+    return internal.withStore(domain, s => internal.okOrError(configStore.mutate(c => Config.moveStore(c, s.domain, index))))
   }
 
-  function handleSales(domain, mode, exitCode, stdoutText, stderrText) {
-    var dm = String(domain || "")
-    var md = String(mode || "live")
-    var errText = M.sanitize(stderrText)
-    var r = resultFor(dm)
-    // The bin/sales.sh guard reports a missing CLI on stderr and exits 127;
-    // flag it centrally so the widget can surface a warning banner.
-    if (/not found|command not found/i.test(errText)) {
-      root.cliMissing = true
-    }
-    var authDenied = /access scope|ACCESS_DENIED|read_reports/i.test(errText)
-    if (authDenied) {
-      // Only an auth denial flips authed off. A network/parse error leaves the
-      // store's auth status alone, since it may still hold a valid session.
-      authed[dm] = false
-      r.lastError = "Authentication required"
-    } else if (/throttl|rate.?limit|429/i.test(errText)) {
-      // Defensive: the CLI has no way to read the shopifyqlCost extension, so
-      // proactive throttling isn't possible — surface a friendly message when
-      // Shopify does throttle us instead of dumping raw stderr.
-      r.lastError = "Rate limited — retrying soon"
-    } else if (exitCode !== 0) {
-      r.lastError = errText.trim() !== "" ? errText.trim() : "Sales query failed"
-    } else {
-      try {
-        var parsed = M.parseSales(JSON.parse(String(stdoutText || "{}")))
-        if (parsed.currency != null) r.currency = parsed.currency
-        r.lastError = null
-        r.lastUpdated = Date.now()
-        authed[dm] = true
-        root.cliMissing = false
-
-        if (md === "live") {
-          // Today-only fields change throughout the day; assign unconditionally
-          // so a failed/empty poll reflects "no data yet" rather than stale.
-          r.today = pickRange(parsed.today)
-          if (parsed.statsToday != null) r.statsToday = parsed.statsToday
-          recordSnapshot(dm, parsed.statsToday)
-          r.yesterdayStatsSoFar = root.yesterdayStatsSoFar(dm)
-
-          // New-order notification: only once a store has a baseline, and only
-          // when today's order count has actually grown between polls.
-          var todayOrders = (parsed.today && parsed.today.orders != null) ? parsed.today.orders : null
-          if (todayOrders != null) {
-            var prev = prevOrders[dm]
-            if (root.notifyNewOrders && prev !== undefined && todayOrders > prev) {
-              var store = findStore(dm)
-              var name = store ? String(store.name || dm) : dm
-              var money = M.formatMoney(parsed.today.sales, r.currency)
-              var body = name + ": now " + todayOrders + " orders today (" + money + ")"
-              var latest = parsed.today.latest
-              if (latest && latest.orderNumber) {
-                var parts = [latest.orderNumber]
-                if (latest.total != null) parts.push(M.formatMoney(latest.total, r.currency))
-                if (latest.customerName) parts.push(latest.customerName)
-                var header = parts.join(" \u00b7 ")
-                var itemText = M.formatItems(latest.items)
-                if (itemText) header += "\n" + itemText
-                body = header + "\n" + body
-              }
-              Quickshell.execDetached(["notify-send", "-a", "Shop", "New order", body])
-              Quickshell.execDetached(["paplay", root.sourceDir + "/sounds/coin.oga"])
-            }
-            prevOrders[dm] = todayOrders
-          }
-        } else {
-          // Historical fields are cached; a null parse must not clobber a prior
-          // good value (e.g. a single throttled field mid-poll), so each is
-          // guarded before assignment. `yesterdaySoFar` (same-time-of-day) keeps
-          // its own line; the {sales, orders} ranges and the stats/series
-          // passthrough fields fold into name loops with identical null-guard
-          // semantics.
-          var rangeFields = ["week", "month", "biweek", "allTime", "yesterday"]
-          for (var i = 0; i < rangeFields.length; i++) {
-            var f = rangeFields[i]
-            if (parsed[f] != null) r[f] = pickRange(parsed[f])
-          }
-          if (parsed.yesterdaySoFar != null) r.yesterdaySoFar = pickRange(parsed.yesterdaySoFar)
-          var passthroughFields = ["statsYesterday", "statsWeek", "statsBiweek", "statsMonth", "statsAll", "weekSeries", "biweekSeries", "monthSeries", "allTimeSeries", "weekSessionsSeries", "biweekSessionsSeries", "monthSessionsSeries", "allTimeSessionsSeries"]
-          for (var j = 0; j < passthroughFields.length; j++) {
-            var g = passthroughFields[j]
-            if (parsed[g] != null) r[g] = parsed[g]
-          }
-        }
-      } catch (e) {
-        r.lastError = "Failed to parse sales response"
-      }
-    }
-  }
-
-  function handleSalesTimeout(domain) {
-    var dm = String(domain || "")
-    var r = resultFor(dm)
-    r.lastError = "Sales query timed out"
-  }
-
-  // One-click CLI install via `mise use -g npm:@shopify/cli@4.7.0`, whose
-  // backends create the `shopify` shim as a first-class step; plain
-  // `npm install -g` only calls mise's best-effort npm wrapper, which can
-  // silently skip reshimming. `-y` keeps it non-interactive (the service runs
-  // without a TTY). A successful install is picked up by the post-install retry
-  // loop (installRefreshTimer), which re-probes the CLI directly and clears
-  // cliMissing once the shim resolves.
-  function installCli() {
-    if (cliInstalling) return "error: already installing"
-    cliInstalling = true
-    cliInstallError = ""
-    writeState()
-    cliInstallProcess.command = ["mise", "use", "-y", "-g", "npm:@shopify/cli@4.7.0"]
-    cliInstallProcess.running = true
-    return "ok"
-  }
-
-  // ------------------------------------------------------------- theme ops
-
-  function push(domain) { return startTheme("push", domain) }
-  function pull(domain) { return startTheme("pull", domain) }
-
-  function startTheme(action, domain, overrideDir, overrideTheme) {
-    var dm = String(domain || "")
-    if (themeProcess.running) return "error: a theme operation is already running"
-    var store = findStore(dm)
-    if (!store) return "error: unknown store"
-    var dir = (overrideDir !== undefined && overrideDir !== null && overrideDir !== "")
-      ? String(overrideDir)
-      : String(store.themeDir || "")
-    if (dir === "") return "error: no theme directory — set it in the store's edit form"
-    var theme = (overrideTheme !== undefined && overrideTheme !== null && overrideTheme !== "")
-      ? String(overrideTheme)
-      : String(store.theme || "live")
-    themeAction = action
-    themeDomain = dm
-    themeSyncing[dm] = true
-    writeState()
-    themeProcess.command = ["bash", root.sourceDir + "/bin/theme.sh", action, dm, dir, theme]
-    themeWatchdog.restart()
-    themeProcess.running = true
-    return "ok"
-  }
-
-  // Revert a push by pushing a saved pre-push snapshot back to the live theme.
-  // Reuses the same theme.sh push path (which snapshots the current live theme
-  // first, so the restore itself is reversible), but with the backup dir as the
-  // source and "live" as the target. `epoch` must be a bare integer dir name —
-  // anything else (a path, "..", an empty string) is rejected up front.
-  function restoreBackup(domain, epoch) {
-    var dm = String(domain || "")
-    var ep = String(epoch || "").trim()
-    if (!/^\d+$/.test(ep)) return "error: invalid backup"
-    return startTheme("push", dm, root.backupsDir + "/" + dm + "/" + ep, "live")
-  }
-
-  // ------------------------------------------------------------- theme dev
-
-  // Start a long-lived `shopify theme dev` live-preview for one store. Resolves
-  // the store's selected theme: "live" -> --allow-live, otherwise -t <theme>.
-  // The process streams its output (waitForEnd: false) so the preview URL can be
-  // captured the moment the CLI prints it, rather than at exit — a dev server
-  // only exits on kill or crash.
-  function startDev(domain) {
-    var dm = String(domain || "")
-    if (dm === "") return "error: no domain"
-    var store = findStore(dm)
-    if (!store) return "error: unknown store"
-    if (!store.themeDir) return "error: no theme directory"
-    if (devRunning[dm]) return "error: theme dev already running"
-    var args = ["shopify", "theme", "dev", "-s", dm]
-    var theme = String(store.theme || "live")
-    if (theme === "live") args.push("--allow-live")
-    else args.push("-t", theme)
-    args.push("--no-color", "--path", String(store.themeDir))
-
-    devRunning[dm] = true
-    devUrl[dm] = ""
-    writeState()
-    // The URL is scraped by devScanTimer (polling) as a reliable fallback to the
-    // StdioCollector dataChanged fast-path; start it now so it begins watching.
-    devScanTimer.restart()
-
-    var p = devProcessComponent.createObject(root, { svc: root, dm: dm })
-    if (!p) {
-      devRunning[dm] = false
-      writeState()
-      return "error: failed to spawn theme dev"
-    }
-    devProcesses[dm] = p
-    p.command = args
-    p.running = true
-    return "ok"
-  }
-
-  function stopDev(domain) {
-    var dm = String(domain || "")
-    var p = devProcesses[dm]
-    if (p) {
-      devProcesses[dm] = undefined
-      // Kill the dev server; onExited sees devRunning already cleared and no-ops.
-      p.running = false
-    }
-    devRunning[dm] = false
-    devUrl[dm] = ""
-    writeState()
-    return "ok"
-  }
-
-  function setDevUrl(domain, url) {
-    devUrl[String(domain || "")] = url
-    // The Dev button is expected to pop the preview in the browser, so open it
-    // as soon as the URL is scraped (setDevUrl fires once — captureUrl returns
-    // early once devUrl is already set).
-    if (url) Quickshell.execDetached(["xdg-open", String(url)])
-    writeState()
-  }
-
-  // Fired by the dev Process on exit. stopDev clears devRunning before the kill
-  // lands, so a still-set flag here means the process exited on its own
-  // (crash/error) — surface the stderr rather than leaving the store "running".
-  function devExited(domain, exitCode, stderrText) {
-    var dm = String(domain || "")
-    devProcesses[dm] = undefined
-    if (!devRunning[dm]) return
-    devRunning[dm] = false
-    devUrl[dm] = ""
-    var r = resultFor(dm)
-    var errText = M.sanitize(stderrText)
-    r.lastSyncError = errText !== "" ? errText : ("theme dev exited (code " + exitCode + ")")
-    writeState()
-  }
-
-  // ------------------------------------------------------------- store discovery
-
-  // (Re)arm the per-call discovery watchdog for the given window.
-  function armDiscoveryWatchdog(ms) {
-    discoveryWatchdog.interval = ms
-    discoveryWatchdog.restart()
-  }
-
-  function discoverStores() {
-    if (discovering) return "error: discovery already running"
-    discovering = true
-    discoveryTimedOut = false
-    discoveryFound = []
-    discoveryPending = Object.create(null)
-    // Phase 1: the auth session list already knows every connected store, so the
-    // widget can show entries ~1s after `discover` instead of waiting out a walk
-    // of all 19 orgs. Phase 2 (handleShopName) enriches real names per store.
-    authProcess.command = ["shopify", "store", "auth", "list", "--json"]
-    authProcess.running = true
-    armDiscoveryWatchdog(30000)
-    return "ok"
-  }
-
-  function handleAuthList(exitCode, stdoutText) {
-    if (exitCode !== 0) { finishDiscovery([]); return }
-    var sessions = []
-    try {
-      var parsed = JSON.parse(String(stdoutText || "{}"))
-      if (parsed && Array.isArray(parsed.sessions)) sessions = parsed.sessions
-    } catch (e) { finishDiscovery([]); return }
-    discoveryFound = []
-    discoveryPending = Object.create(null)
-    for (var i = 0; i < sessions.length; i++) {
-      var s = sessions[i]
-      if (!s || !s.subdomain) continue
-      var sub = String(s.subdomain)
-      if (sub === "" || discoveryPending[sub]) continue
-      discoveryPending[sub] = true
-      discoveryFound.push({ name: sub, domain: sub + ".myshopify.com" })
-    }
-    if (discoveryFound.length === 0) {
-      // No store-auth sessions: the account probe's org listing distinguishes
-      // logged-out from logged-in-with-none. Promote a running probe so its
-      // result also settles this discovery; otherwise start one.
-      startLoginProbe("discovery")
-      armDiscoveryWatchdog(30000)
-      return
-    }
-    // Store-auth sessions prove the account is logged in.
-    setLoginRequired(false)
-    // Land the phase-1 result now; discovery stays in flight to enrich names.
-    writeDiscovery()
-    // Phase 2: resolve each store's real name with a fast per-store
-    // `shop { name }` query. The store count is tiny (a handful), so spawn them
-    // all at once rather than bounding like the old 19-org walk.
-    for (var j = 0; j < discoveryFound.length; j++) {
-      var entry = discoveryFound[j]
-      if (!entry || !entry.domain) continue
-      var p = shopNameComponent.createObject(root, { svc: root, dm: String(entry.domain) })
-      if (p) p.running = true
-    }
-    armDiscoveryWatchdog(30000)
-  }
-
-  // Apply the account probe (Model.js): on success parse the store rows, apply
-  // the login flag, and (in a discovery run) settle discovery or start the
-  // multi-org merge. `ambiguous` leaves the flag unchanged.
-  function handleLoginProbe(context, exitCode, stdoutText, stderrText) {
-    var rows = []
-    var kind = M.classifyLoginProbe(exitCode, stderrText)
-    if (kind === "loggedIn") rows = M.parseStoreRows(stdoutText)
-    if (kind !== "ambiguous") setLoginRequired(kind === "loggedOut")
-    // multiOrg is authenticated but `store list` needs an org id; a discovery
-    // run merges every org's stores (~20-30s) under a 60s watchdog ceiling.
-    // The merge's own handler settles discovery.
-    if (kind === "multiOrg" && context === "discovery") {
-      armDiscoveryWatchdog(60000)
-      multiOrgStoresProcess.running = true
-      return
-    }
-    if (context === "discovery") finishDiscovery(rows)
-  }
-
-  function handleShopName(exitCode, stdoutText, dm) {
-    if (!discovering) return
-    var sub = dm.slice(-14) === ".myshopify.com" ? dm.slice(0, -14) : dm
-    if (exitCode === 0) {
-      try {
-        // `store execute -j` returns the data object directly — no `data`
-        // wrapper — so the name is parsed.shop.name.
-        var parsed = JSON.parse(String(stdoutText || "{}"))
-        if (parsed && parsed.shop && typeof parsed.shop.name === "string" && parsed.shop.name !== "") {
-          for (var i = 0; i < discoveryFound.length; i++) {
-            if (discoveryFound[i] && discoveryFound[i].domain === dm) {
-              discoveryFound[i].name = parsed.shop.name
-              break
-            }
-          }
-        }
-      } catch (e) {
-        // A malformed response keeps the subdomain name (graceful degradation).
-      }
-    }
-    // Count this store resolved regardless of success so discovery always settles.
-    if (sub !== "" && discoveryPending) delete discoveryPending[sub]
-    if (Object.keys(discoveryPending).length === 0) finishDiscovery(discoveryFound)
-  }
-
-  function writeDiscovery() {
-    // Include a timestamp so the payload never equals the previous one — otherwise
-    // FileView.setText() skips the write when content is unchanged and the widget's
-    // onFileChanged never fires, leaving the picker stuck on "Discovering…".
-    discoveryFile.setText(JSON.stringify({ stores: discoveryFound, discoveredAt: Date.now() }, null, 2) + "\n")
-  }
-
-  function finishDiscovery(list) {
-    discovering = false
-    discoveryWatchdog.stop()
-    discoveryFound = list || []
-    discoveryFound.sort(function(a, b) { return M.naturalCompare(a ? a.name : "", b ? b.name : "") })
-    writeDiscovery()
-  }
-
-  // A watchdog kill sets discoveryTimedOut; the process it killed consumes the
-  // flag here and settles the run with no rows. Returns true when it handled it,
-  // so callers can early-return.
-  function consumeDiscoveryTimeout() {
-    if (!discoveryTimedOut) return false
-    discoveryTimedOut = false
-    finishDiscovery([])
-    return true
-  }
-
-  // ------------------------------------------------------------- config mutation
-
-  function addStore(name, domain, themeDir) {
-    var nm = String(name || "").trim()
-    var dm = String(domain || "").trim()
-    if (nm === "") return "error: name must not be empty"
-    if (dm === "") return "error: domain must not be empty"
-    if (findStore(dm)) return "error: a store with this domain already exists"
-    var stores = (config.stores || []).slice()
-    // Default the new store to shown only if fewer than 3 stores are already on
-    // the bar; otherwise it starts hidden (the user must free a slot first).
-    var shown = 0
-    for (var i = 0; i < stores.length; i++) {
-      if (stores[i] && stores[i].showOnBar !== false) shown++
-    }
-    stores.push({ name: nm, domain: dm, themeDir: String(themeDir || "").trim(), theme: "live", showOnBar: shown < 3 })
-    config = Object.assign({}, config, { stores: stores })
-    persistConfig()
-    // Auth happens here, not as a manual setup step; authed stays false until
-    // a later poll succeeds.
-    return authStore(dm)
-  }
-
-  function updateStore(domain, field, value) {
-    var dm = String(domain || "")
-    if (!findStore(dm)) return "error: unknown store"
-    var f = String(field || "")
-    var v = value === undefined ? "" : value
-    var stores = (config.stores || []).slice()
-    for (var i = 0; i < stores.length; i++) {
-      if (String(stores[i].domain) !== dm) continue
-      var updated = Object.assign({}, stores[i])
-      if (f === "domain") {
-        var nd = String(v || "").trim()
-        if (nd === "") return "error: domain must not be empty"
-        if (nd !== dm && findStore(nd)) return "error: a store with this domain already exists"
-        updated.domain = nd
-        if (nd !== dm) {
-          results[nd] = results[dm]; delete results[dm]
-          syncing[nd] = syncing[dm]; delete syncing[dm]
-          authed[nd] = authed[dm]; delete authed[dm]
-          prevOrders[nd] = prevOrders[dm]; delete prevOrders[dm]
-          themeSyncing[nd] = themeSyncing[dm]; delete themeSyncing[dm]
-          devRunning[nd] = devRunning[dm]; delete devRunning[dm]
-          devUrl[nd] = devUrl[dm]; delete devUrl[dm]
-          devProcesses[nd] = devProcesses[dm]; delete devProcesses[dm]
-          fetches[nd + ":live"] = fetches[dm + ":live"]; delete fetches[dm + ":live"]
-          fetches[nd + ":historical"] = fetches[dm + ":historical"]; delete fetches[dm + ":historical"]
-          // If a `theme dev` Process was running during the rename, its captured
-          // `dm` stays the old value; devExited(oldDm) will no-op on the missing
-          // key (extreme edge case — a rename mid-dev — acceptable).
-        }
-      } else if (f === "name") {
-        var nn = String(v || "").trim()
-        if (nn === "") return "error: name must not be empty"
-        updated.name = nn
-      } else if (f === "themeDir") {
-        updated.themeDir = String(v || "").trim()
-      } else if (f === "theme") {
-        updated.theme = String(v || "live").trim()
-      } else if (f === "showOnBar") {
-        updated.showOnBar = (String(v) === "true" || String(v) === "1")
-      } else {
-        return "error: unknown field: " + f
-      }
-      stores[i] = updated
-    }
-    config = Object.assign({}, config, { stores: stores })
-    persistConfig()
-    writeState()
-    return "ok"
+  function updateSettings(patchJson) {
+    const p = Config.parsePatch(patchJson)
+    if (p.error) return { ok: false, error: p.error }
+    return internal.okOrError(configStore.mutate(c => Config.applySettingsPatch(c, p.value)))
   }
 
   function removeStore(domain) {
-    var dm = String(domain || "")
-    if (!findStore(dm)) return "error: unknown store"
-    // A store removed while `theme dev` is running would orphan its long-lived
-    // dev Process (it only exits on kill/crash), so stop it before scrubbing.
-    if (devRunning[dm]) stopDev(dm)
-    var stores = []
-    var list = config.stores || []
-    for (var i = 0; i < list.length; i++) {
-      if (String(list[i].domain) !== dm) stores.push(list[i])
+    return internal.withStore(domain, s => {
+      // Removing stops the store's helpers: never mid push, pull, restore,
+      // preview or grant (the result would be thrown away and the dialog
+      // says nothing is touched).
+      const busy = preflight.requireStoreIdle(s)
+      if (busy) return busy
+      // A written removal forgets the store (configUpdated); a refused one
+      // (config_busy, config_unavailable) keeps everything.
+      return internal.okOrError(configStore.mutate(c => Config.removeStore(c, s.domain)))
+    })
+  }
+
+  // Settings' "Reset config" (behind the panel's Dialog): keeps the old
+  // file as config.json.old and starts from an empty v2 config, which
+  // forgets every store and so stops its helpers (Preflight.requireResetIdle;
+  // the dialog says theme folders and Shopify access aren't touched). While
+  // config.json is unreadable the snapshot has no stores, so the panel
+  // pre-checks the top-level `themesBusy`/`granting` instead.
+  function resetConfig() {
+    return preflight.requireResetIdle() || configStore.resetConfig()
+  }
+
+  function dismissConfigWriteError() {
+    configStore.dismissWriteError()
+  }
+
+  // ---- sales access ------------------------------------------------------
+
+  // origin "ipc": a script asked. The grant runs (it is the browser's own
+  // consent flow), but its verified shop name never relabels the store:
+  // config writes stay panel-only, except requestAddStore's dialog.
+  function grantSalesAccess(domain, origin) {
+    return internal.withStore(domain, s => {
+      const cli = preflight.requireCli()
+      if (cli) return cli
+      const r = salesAccess.grant(s.domain, origin)
+      if (r.ok) internal.publish()
+      return r
+    })
+  }
+
+  function cancelSalesAccess(domain) {
+    return internal.withStore(domain, s => {
+      salesAccess.cancel(s.domain)
+      internal.publish()
+      return Errors.ok()
+    })
+  }
+
+  // ---- account and CLI ---------------------------------------------------
+
+  function discoverStores() {
+    const cli = preflight.requireCli()
+    if (cli) return cli
+    if (!discovery.discover()) return Errors.accountBusy()
+    return Errors.started()
+  }
+
+  // Sign-in and sign-out rewrite the CLI's account session store, so they
+  // wait for running theme work (Preflight.requireThemesIdle). A discovery
+  // started under the old session is cancelled: its account report would
+  // otherwise land after the change and undo it.
+  function signIn() {
+    const refused = preflight.requireCli() || preflight.requireThemesIdle()
+    if (refused) return refused
+    const res = account.signIn()
+    if (res.ok) discovery.cancel()
+    return res
+  }
+
+  function cancelSignIn() {
+    return account.cancelSignIn()
+  }
+
+  function signOut() {
+    const refused = preflight.requireCli() || preflight.requireThemesIdle()
+    if (refused) return refused
+    const res = account.signOut()
+    if (res.ok) discovery.cancel()
+    return res
+  }
+
+  function installCli() {
+    return account.installCli()
+  }
+
+  function cancelInstall() {
+    return account.cancelInstall()
+  }
+
+  // ---- theme (non-destructive) -------------------------------------------
+
+  function cancelThemeJob(domain) {
+    return internal.withStore(domain, s => {
+      themeJobs.cancelJob(s.domain)
+      return Errors.ok()
+    })
+  }
+
+  // opts.autoOpen: the panel's Preview button opens the browser on the first
+  // ready; without opts (IPC) nothing opens.
+  function startPreview(domain, opts) {
+    const s = configStore.store(domain)
+    const refused = preflight.checkPreview(s)
+    if (refused) return refused
+    previews.start(s.domain, s.theme.folder, !!(opts && opts.autoOpen === true))
+    return Errors.started()
+  }
+
+  function stopPreview(domain) {
+    return internal.withStore(domain, s => {
+      previews.stop(s.domain)
+      return Errors.ok()
+    })
+  }
+
+  function listThemes(domain) {
+    return internal.withStore(domain, s => {
+      const cli = preflight.requireCli()
+      if (cli) return cli
+      themeInfo.listThemes(s.domain)
+      return Errors.started()
+    })
+  }
+
+  function listBackups(domain) {
+    return internal.withStore(domain, s => {
+      themeInfo.listBackups(s.domain)
+      return Errors.started()
+    })
+  }
+
+  function inspectFolder(domain) {
+    return internal.withStore(domain, s => {
+      if (!s.theme || !s.theme.folder) return Errors.noThemeFolder()
+      themeInfo.inspectFolder(s.domain, s.theme.folder)
+      return Errors.started()
+    })
+  }
+
+  function dismissThemeResult(domain) {
+    return internal.withStore(domain, s => {
+      themeJobs.dismiss(s.domain)
+      return Errors.ok()
+    })
+  }
+
+  // ---- confirmation requests (IPC-safe: they only open the dialog) -------
+
+  // Each request runs the preflight of the action it confirms (model/
+  // Preflight.qml). Only the IpcHandler calls them: the panel runs actions
+  // through its own Dialog.
+  function requestPush(domain) {
+    const s = configStore.store(domain)
+    const refused = preflight.checkPush(s)
+    if (refused) return refused
+    return internal.request({ action: "push", domain: s.domain, live: themeInfo.target(s.domain, s.theme).live })
+  }
+
+  function requestPull(domain) {
+    const s = configStore.store(domain)
+    const refused = preflight.checkPull(s)
+    if (refused) return refused
+    return internal.request({ action: "pull", domain: s.domain })
+  }
+
+  function requestRestore(domain, backupId) {
+    const s = configStore.store(domain)
+    const refused = preflight.checkRestore(s, backupId)
+    if (refused) return refused
+    const id = String(backupId)
+    return internal.request({ action: "restore", domain: s.domain, backupId: id, live: themeInfo.restoreIsLive(s.domain, id) })
+  }
+
+  function requestInstallCli() {
+    const r = preflight.requireCli()
+    if (!r) return Errors.ok()
+    return r.error.code === "cli_missing" ? internal.request({ action: "installCli" }) : r
+  }
+
+  // The IPC way to add a store: the dialog shows the domain and name. The
+  // label is checked here, before anyone is asked: the dialog renders it,
+  // so it only ever shows a cleanLabel-valid label.
+  function requestAddStore(domain, label) {
+    const nd = Config.normalizeDomain(String(domain || ""))
+    if (nd === null) return Errors.invalidDomain()
+    const given = label === undefined || label === null ? "" : String(label)
+    const cleaned = given.trim() === "" ? null : Config.cleanLabel(given)
+    if (given.trim() !== "" && cleaned === null) return Errors.invalidPatch("label must be 1-80 characters without control characters")
+    if (configStore.configError) return Errors.configInvalid(configStore.configError)
+    if (!configStore.loaded) return Errors.configUnavailable()
+    // A dry run of the write the accepted dialog makes: duplicate, cap, label.
+    const dry = Config.addStore(configStore.config, nd, cleaned, discovery.result.stores)
+    if (dry.error) return { ok: false, error: dry.error }
+    return internal.request({ action: "addStore", domain: dry.domain, label: dry.label })
+  }
+
+  // Called by the panel's Dialog (ui/Dialog.qml) only. On accept, runs the
+  // operation with exactly the consent the dialog showed (pendingConfirm.live).
+  function resolvePending(id, accepted) {
+    const r = consent.resolve(id, accepted)
+    internal.publish()
+    if (!r.ok) return r
+    if (!r.accepted) return Errors.ok()
+    const p = r.spec
+    if (p.action === "push") return root.pushTheme(p.domain, { confirmLive: p.live })
+    if (p.action === "pull") return root.pullTheme(p.domain)
+    if (p.action === "restore") return root.restoreBackup(p.domain, p.backupId, { confirmLive: p.live })
+    if (p.action === "installCli") return root.installCli()
+    // addStore: the last of the five actions internal.request issues (a new
+    // one needs its own line above).
+    return root.addStore(p.domain, p.label)
+  }
+
+  // ---- destructive operations (QML-only, never on IPC) --------------------
+
+  // A live target needs theme.allowLive (--allow-live) and opts.confirmLive
+  // from the live Dialog (--confirm-live). They are sent separately, so a
+  // target that went live after the themes list was cached comes back as
+  // live_not_confirmed and the store view asks for the live consent.
+  function pushTheme(domain, opts) {
+    const s = configStore.store(domain)
+    const refused = preflight.checkPush(s)
+    if (refused) return refused
+    themeJobs.push(s.domain, {
+      folder: s.theme.folder, target: s.theme.target, name: themeInfo.target(s.domain, s.theme).name,
+      allowLive: s.theme.allowLive === true, confirmLive: !!(opts && opts.confirmLive === true)
+    })
+    return Errors.started()
+  }
+
+  function pullTheme(domain) {
+    const s = configStore.store(domain)
+    const refused = preflight.checkPull(s)
+    if (refused) return refused
+    themeJobs.pull(s.domain, { folder: s.theme.folder, target: s.theme.target, name: themeInfo.target(s.domain, s.theme).name })
+    return Errors.started()
+  }
+
+  function restoreBackup(domain, backupId, opts) {
+    const s = configStore.store(domain)
+    const refused = preflight.checkRestore(s, backupId)
+    if (refused) return refused
+    const id = String(backupId)
+    const allowLive = !!(s.theme && s.theme.allowLive)
+    // The result names the backup's theme (the row's name; without a row
+    // the result line says "Theme <id>" from the id).
+    const b = themeInfo.backupById(s.domain, id)
+    themeJobs.restore(s.domain, id, allowLive, !!(opts && opts.confirmLive === true), b && b.theme ? String(b.theme.name || "") : "")
+    return Errors.started()
+  }
+
+  // A paste into a panel field (QML-only, never IPC): done({ok, text} |
+  // {ok: false, error}) once helpers/read-clipboard answers.
+  function readClipboard(done) {
+    clipboard.read(done)
+  }
+
+  function sendTestAlert() {
+    alerts.test(configStore.settings.alerts.sound)
+    return Errors.started()
+  }
+
+  // ---- panel hooks -------------------------------------------------------
+
+  // A panel opened or closed (SalesScheduler fetches the stores whose
+  // today figures aren't fresh when the first one opens).
+  function setPanelOpen(ownerKey, open) {
+    consent.setPanelOpen(ownerKey, open)
+    internal.publish()
+  }
+
+  // A panel shows (or closed) its Dialog. While any is open, request* is
+  // refused, so IPC can never take over consent the user is giving.
+  function setDialogOpen(ownerKey, open) {
+    consent.setDialogOpen(ownerKey, open)
+  }
+
+  // The panel opened a store's view: refresh what that view shows.
+  function storeViewOpened(domain) {
+    const s = configStore.store(domain)
+    if (!s) return
+    const d = s.domain
+    scheduler.storeViewed(d)
+    if (s.theme && account.cli.status === "ready") themeInfo.listThemesIfStale(d, 300000)
+    const ti = themeInfo.stateFor(d)
+    if (s.theme && s.theme.folder && (!ti || ti.folder.status === "unknown")) themeInfo.inspectFolder(d, s.theme.folder)
+  }
+
+  // ---- internals ---------------------------------------------------------
+
+  QtObject {
+    id: internal
+    // A complete, empty snapshot until the first publish, so readers never
+    // see null.
+    property var snapshot: Snapshot.initialSnapshot()
+    // The last buildSnapshot result ({snapshot, memo}); its store objects
+    // are reused by the next build when their inputs did not change.
+    property var lastBuild: ({ snapshot: internal.snapshot, memo: null })
+    property var storeOrder: []
+    property bool started: false
+    // When each refresh last ran: "" for the global one, else the domain.
+    property var refreshAt: Object.create(null)
+    // The config entries startup or the last valid config change saw.
+    property var knownStores: Object.create(null)
+
+    function okOrError(r) {
+      return r.ok ? Errors.ok() : { ok: false, error: r.error }
     }
-    config = Object.assign({}, config, { stores: stores })
-    persistConfig()
-    delete results[dm]
-    delete syncing[dm]
-    delete authed[dm]
-    delete prevOrders[dm]
-    delete themeSyncing[dm]
-    delete devRunning[dm]
-    delete devUrl[dm]
-    delete devProcesses[dm]
-    delete fetches[dm + ":live"]
-    delete fetches[dm + ":historical"]
-    writeState()
-    return "ok"
-  }
 
-  function reorderStore(domain, newIndex) {
-    var dm = String(domain || "")
-    var idx = -1
-    for (var i = 0; i < config.stores.length; i++) {
-      if (config.stores[i] && String(config.stores[i].domain) === dm) { idx = i; break }
+    // fn(store) for the domain's config entry, else why there is none.
+    function withStore(domain, fn) {
+      const s = configStore.store(domain)
+      return s ? fn(s) : preflight.storeLookupFailed()
     }
-    if (idx < 0) return "error: unknown store"
-    var n = Math.max(0, Math.min(config.stores.length - 1, Math.round(newIndex)))
-    if (idx === n) return "ok"
-    var item = config.stores.splice(idx, 1)[0]
-    config.stores.splice(n, 0, item)
-    persistConfig()
-    writeState()
-    return "ok"
-  }
 
-  function setNotifyNewOrders(enabled) {
-    var e = String(enabled || "")
-    config = Object.assign({}, config, { notifyNewOrders: e === "true" || e === "1" })
-    persistConfig()
-    writeState()
-    return "ok"
-  }
-
-  function authStore(domain) {
-    var dm = String(domain || "")
-    if (!findStore(dm)) return "error: unknown store"
-    authed[dm] = false
-    writeState()
-    Quickshell.execDetached(["shopify", "store", "auth", "-s", dm, "--scopes", "read_reports,read_orders,read_customers"])
-    return "ok"
-  }
-
-  // Device-code flow opens the browser: do NOT set CI (it would fail fast).
-  // `--alias shop` is required in this non-TTY context, else the CLI exits
-  // `Flag not specified: --alias` without opening the flow. The while-running
-  // guard ignores repeat clicks while a login is open.
-  function loginShopify() {
-    if (loginProcess.running) return "ok"
-    loginProcess.running = true
-    return "ok"
-  }
-
-  // ------------------------------------------------------------- files
-
-  FileView {
-    id: configFile
-    path: root.configPath
-    watchChanges: true
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.applyConfig(text())
-    onLoadFailed: root.applyConfig("")
-    onFileChanged: reload()
-  }
-
-  FileView {
-    id: stateFile
-    path: root.statePath
-    atomicWrites: true
-    printErrors: false
-    onSaveFailed: {
-      // First write can race the mkdir in Component.onCompleted; ensure the
-      // directory exists and retry once.
-      Quickshell.execDetached(["mkdir", "-p", root.stateDir])
-      stateRetryTimer.restart()
+    // A refresh within 2 s of the last one with the same key ("" for the
+    // global refresh, else a domain) is refused; otherwise it is recorded.
+    function throttled(key) {
+      const now = Date.now()
+      if (now - (internal.refreshAt[key] || 0) < 2000) return true
+      internal.refreshAt[key] = now
+      return false
     }
-  }
 
-  FileView {
-    id: discoveryFile
-    path: root.stateDir + "/discovered.json"
-    atomicWrites: true
-    printErrors: false
-  }
-
-  FileView {
-    id: historyFile
-    path: root.stateDir + "/history.json"
-    atomicWrites: true
-    printErrors: false
-    onLoaded: {
-      var parsed = null
-      try { parsed = JSON.parse(String(text())) } catch (e) { parsed = null }
-      root.history = (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : {}
+    function request(spec) {
+      const r = consent.request(spec)
+      if (r.ok) internal.publish()
+      return r
     }
-    onLoadFailed: root.history = {}
-  }
 
-  // ------------------------------------------------------------- processes
+    function fetched(domain, range, result, withTraffic) {
+      const cfg = configStore.store(domain)
+      if (!cfg) return
+      const out = salesData.applyFetch(domain, range, result, withTraffic)
+      if (!out) return
+      const prefs = configStore.settings.alerts
+      if (out.newOrders > 0 && prefs.notify) {
+        const st = salesData.record(domain)
+        alerts.notify(cfg.label, st.sales.today, st.currency, out.newOrders, prefs.sound)
+      }
+      if (out.errorCode === "signed_out") account.noteSession("signed_out")
+      else if (out.errorCode === "cli_missing") account.check()
+    }
 
-  // One Process per store, spawned on demand by startFetch so every store's
-  // sales query runs concurrently. The service keeps a live reference in
-  // `fetches` for dedup; on exit it reports back, clears the reference, and
-  // destroys itself (createObject parents it to the service, so without an
-  // explicit destroy it would linger for the service's lifetime).
-  Component {
-    id: salesFetchComponent
-    Process {
-      id: self
-      property var svc: null
-      property string dm: ""
-      property string mode: "live"
-      property bool timedOut: false
-      property real startedAt: 0
+    // SalesAccess results carry no arrays, so no Os.plain round trip.
+    function accessFinished(domain, r) {
+      const cfg = configStore.store(domain)
+      if (!cfg) return
+      salesData.applyGrant(domain, r)
+      if (r.ok) {
+        scheduler.addStore(domain)
+        // A store still labelled with its subdomain takes the shop name the
+        // grant verified ({ shop { name } }), when the panel asked: an IPC
+        // grant never writes config.json.
+        if (r.origin === "panel" && r.name && cfg.label === TextUtil.subdomainLabel(domain) && r.name !== cfg.label)
+          configStore.mutate(c => Config.applyStorePatch(c, domain, { label: r.name }, root.home, { allowThemeKeys: false }))
+      } else if (r.error.code === "cli_missing") {
+        account.check()
+      }
+    }
 
-      command: ["bash", svc.sourceDir + "/bin/sales.sh", dm, mode]
-      stdout: StdioCollector { id: out; waitForEnd: true }
-      stderr: StdioCollector { id: err; waitForEnd: true }
+    function jobFinished(domain, result) {
+      const s = configStore.store(domain)
+      if (!s) return
+      themeInfo.refreshAfterJob(domain, s.theme, result)
+      if (result.error && result.error.code === "signed_out") account.noteSession("signed_out")
+    }
 
-      onExited: function(exitCode) {
-        if (self.timedOut) {
-          self.svc.handleSalesTimeout(self.dm)
-        } else {
-          self.svc.handleSales(self.dm, self.mode, exitCode, out.text, err.text)
+    function signedIn() {
+      // A fresh account session answers any "session expired" theme
+      // result; leaving it would keep offering a sign-in that signs out.
+      themeJobs.dismissSessionExpired()
+      // Restart discovery under the new session: an older run still going
+      // would refuse the new one.
+      discovery.cancel()
+      root.discoverStores()
+    }
+
+    function forgetStore(domain) {
+      scheduler.forget(domain)
+      previews.forget(domain)
+      themeInfo.forget(domain)
+      themeJobs.forget(domain)
+      salesAccess.cancel(domain)
+      consent.clear(domain)
+      delete internal.refreshAt[domain]
+      salesData.forget(domain)
+      internal.publish()
+    }
+
+    // Startup: prepare-state, config + cache, publish from the cache,
+    // check-account, then the scheduler (once the CLI is ready). Theme
+    // lists are fetched when a store view opens, never here.
+    function maybeStart() {
+      if (internal.started || !stateDir.ready || !configStore.loaded || !salesData.loaded) return
+      const stores = configStore.stores
+      for (let i = 0; i < stores.length; i++) {
+        salesData.warm(stores[i].domain)
+        internal.knownStores[stores[i].domain] = stores[i]
+      }
+      // An unreadable config lists no stores; pruning the cache against it
+      // would drop every store's cached figures.
+      if (!configStore.configError) salesData.retain(configStore.domains())
+      internal.started = true
+      account.check()
+      scheduler.startup()
+      internal.publish()
+    }
+
+    // Config diff by domain: added -> warm and fetch, removed -> forget,
+    // folder change -> re-inspect; everything else needs no fetch. Stores
+    // are forgotten (jobs, previews, grants, cached figures) only when a
+    // valid config removes them: while the file is unreadable (a typo, or
+    // an editor's truncate-then-write window) the known stores and their
+    // running work are kept.
+    function configUpdated() {
+      if (configStore.configError) {
+        internal.maybeStart()
+        internal.publish()
+        return
+      }
+      const stores = configStore.stores
+      const next = Object.create(null)
+      for (let i = 0; i < stores.length; i++) next[stores[i].domain] = stores[i]
+      if (internal.started) {
+        const old = Object.keys(internal.knownStores)
+        for (let i = 0; i < old.length; i++) if (!next[old[i]]) internal.forgetStore(old[i])
+        for (let i = 0; i < stores.length; i++) {
+          const s = stores[i]
+          const prev = internal.knownStores[s.domain]
+          if (!prev) {
+            salesData.warm(s.domain)
+            scheduler.addStore(s.domain)
+            continue
+          }
+          const oldFolder = prev.theme ? prev.theme.folder : ""
+          const newFolder = s.theme ? s.theme.folder : ""
+          if (oldFolder !== newFolder) themeInfo.inspectFolder(s.domain, newFolder)
         }
-        self.svc.finishFetch(self.dm, self.mode)
-        self.destroy()
       }
+      internal.knownStores = next
+      internal.maybeStart()
+      internal.publish()
     }
-  }
 
-  // Long-running `shopify theme dev` per store, spawned by startDev. Unlike the
-  // sales/theme collectors above (waitForEnd: true, which only delivers output
-  // once the process exits), this one streams: the preview URL is scraped from
-  // the output (dataChanged fires per chunk as a fast path; devScanTimer polls
-  // as the reliable path) and the server is killed with `running = false` on
-  // stop. On its own exit, devExited clears the flags and surfaces stderr as
-  // lastSyncError.
-  Component {
-    id: devProcessComponent
-    Process {
-      id: self
-      property var svc: null
-      property string dm: ""
+    function publish() {
+      if (!publishTimer.running) publishTimer.start()
+    }
 
-      stdout: StdioCollector {
-        id: devStdout
-        waitForEnd: false
-        onDataChanged: self.captureUrl()
+    // One build from every model's current state, reusing the last one's
+    // unchanged store objects.
+    function build() {
+      const stores = configStore.stores
+      const parts = []
+      for (let i = 0; i < stores.length; i++) {
+        const d = stores[i].domain
+        parts.push({
+          cfg: stores[i],
+          sales: salesData.records[d] || null,
+          info: themeInfo.stateFor(d),
+          job: themeJobs.stateFor(d),
+          preview: previews.stateFor(d),
+          pending: scheduler.isPending(d),
+          granting: salesAccess.isGranting(d),
+          retryAt: scheduler.retryAt(d)
+        })
       }
-      stderr: StdioCollector { id: devStderr; waitForEnd: false }
+      // Preflight.requireThemesIdle is the one source of the job-then-preview rule.
+      const tb = preflight.requireThemesIdle()
+      return Snapshot.buildSnapshot({
+        configError: configStore.configError,
+        configWriteError: configStore.configWriteError,
+        stateError: stateDir.error,
+        invalidStores: configStore.invalidStores,
+        cli: account.cli,
+        account: account.account,
+        alertTools: alerts.health,
+        pendingConfirm: consent.pending,
+        themesBusy: tb ? tb.error.what : "",
+        granting: salesAccess.grantingAny(),
+        discovery: discovery.result,
+        settings: configStore.settings,
+        salesPaused: !scheduler.enabled,
+        stores: parts
+      }, internal.lastBuild)
+    }
 
-      function captureUrl() {
-        if (self.svc.devUrl[self.dm]) return
-        // The banner (and its preview URL) lands on stderr, not stdout — the
-        // CLI routes the interactive menu there. Check both so the URL is
-        // caught regardless of which stream the current CLI build uses.
-        var m = /https?:\/\/[^\s"' ]+/.exec(devStdout.text)
-        if (!m) m = /https?:\/\/[^\s"' ]+/.exec(devStderr.text)
-        if (m) {
-          // The CLI may frame the URL with box-drawing glyphs or punctuation;
-          // neither can terminate a real URL, so strip them from the tail.
-          self.svc.setDevUrl(self.dm, String(m[0]).replace(/[),.;:\u2500-\u257F]+$/, ""))
-        }
-      }
-
-      onExited: function(exitCode) {
-        self.svc.devExited(self.dm, exitCode, devStderr.text)
-        self.destroy()
-      }
+    function publishNow() {
+      internal.lastBuild = internal.build()
+      internal.snapshot = internal.lastBuild.snapshot
+      const order = configStore.domains()
+      if (order.join("\n") !== internal.storeOrder.join("\n")) internal.storeOrder = order
     }
   }
 
-  Process {
-    id: themeProcess
-    command: []
-    stdout: StdioCollector { id: themeStdout; waitForEnd: true }
-    stderr: StdioCollector { id: themeStderr; waitForEnd: true }
-    onExited: function(exitCode) {
-      var dm = root.themeDomain
-      var action = root.themeAction
-      root.themeDomain = ""
-      root.themeAction = ""
-      themeSyncing[dm] = false
-      var r = root.resultFor(dm)
-      var output = M.sanitize(themeStdout.text)
-      if (root.themeTimedOut) {
-        root.themeTimedOut = false
-        r.lastSyncOutput = ""
-        r.lastSyncError = (action === "pull" ? "Pull" : "Push") + " timed out"
-      } else if (exitCode === 0) {
-        r.lastSyncOutput = output
-        r.lastSyncError = ""
-      } else {
-        r.lastSyncOutput = output
-        r.lastSyncError = M.sanitize(themeStderr.text) || (action + " failed")
-      }
-      root.writeState()
-    }
+  StateDir {
+    id: stateDir
+    onReadyChanged: internal.maybeStart()
+    onErrorChanged: internal.publish()
   }
 
-  Process {
-    id: authProcess
-    command: []
-    stdout: StdioCollector { id: authStdout; waitForEnd: true }
-    stderr: StdioCollector { id: authStderr; waitForEnd: true }
-    onExited: function(exitCode) {
-      if (root.consumeDiscoveryTimeout()) return
-      root.handleAuthList(exitCode, authStdout.text)
-    }
+  ConfigStore {
+    id: configStore
+    prepared: stateDir.ready
+    home: root.home
+    onConfigChanged: internal.configUpdated()
+    onLoadedChanged: internal.maybeStart()
+    onInvalidStoresChanged: internal.publish()
+    onConfigWriteErrorChanged: internal.publish()
   }
 
-  // Non-interactive account probe; context "discovery" also settles a discovery
-  // run. `CI=1 exec` keeps it from opening a browser and hanging in the daemon.
-  Process {
-    id: loginProbeProcess
-    property string context: "check"
-    command: ["bash", "-c", "CI=1 exec shopify store list --json"]
-    stdout: StdioCollector { id: loginProbeStdout; waitForEnd: true }
-    stderr: StdioCollector { id: loginProbeStderr; waitForEnd: true }
-    onExited: function(exitCode) {
-      if (root.consumeDiscoveryTimeout()) return
-      root.handleLoginProbe(loginProbeProcess.context, exitCode, loginProbeStdout.text, loginProbeStderr.text)
-    }
+  SalesData {
+    id: salesData
+    prepared: stateDir.ready
+    home: root.home
+    pollSeconds: configStore.settings.pollSeconds
+    onLoadedChanged: internal.maybeStart()
+    onRevisionChanged: internal.publish()
   }
 
-  // Multi-org fallback: the account probe reported "organization ID is required"
-  // during a discovery run, so list every org's stores via
-  // `bin/discover-stores.sh` and settle discovery from its merged output. The
-  // script bounds its own parallelism; this process only runs in the discovery
-  // context.
-  Process {
-    id: multiOrgStoresProcess
-    command: ["bash", root.sourceDir + "/bin/discover-stores.sh"]
-    stdout: StdioCollector { id: multiOrgStdout; waitForEnd: true }
-    onExited: function(exitCode) {
-      if (root.consumeDiscoveryTimeout()) return
-      var rows = exitCode === 0 ? M.parseStoreRows(multiOrgStdout.text) : []
-      root.finishDiscovery(rows)
-    }
+  Account {
+    id: account
+    home: root.home
+    onCliChanged: internal.publish()
+    onAccountChanged: internal.publish()
+    onSignedIn: internal.signedIn()
   }
 
-  // Presence probe for the `shopify` binary. `command -v` is a shell builtin,
-  // so it runs under bash; exit 0 means found. Result drives cliMissing and is
-  // persisted so the file-driven widget banner updates.
-  Process {
-    id: cliProbeProcess
-    command: ["bash", "-c", "command -v shopify >/dev/null 2>&1"]
-    onExited: function(exitCode) {
-      root.cliMissing = (exitCode !== 0)
-      root.writeState()
-    }
+  Preflight {
+    id: preflight
+    account: account
+    configStore: configStore
+    previews: previews
+    salesAccess: salesAccess
+    themeInfo: themeInfo
+    themeJobs: themeJobs
   }
 
-  // One-shot global Shopify CLI install. stdout is collected (logs there) but
-  // only stderr is surfaced on failure.
-  // After a successful install, re-probe every few seconds until the `shopify`
-  // shim resolves and cliMissing clears. Probes the CLI directly (not only via
-  // sales polls) so this settles with zero stores configured too. Keeps
-  // cliInstalling true the whole time so the banner shows "Installing…" without
-  // flashing the Install button again.
-  Timer {
-    id: installRefreshTimer
-    interval: 3000
-    repeat: true
-    property int tries: 0
-    onTriggered: {
-      tries += 1
-      if (root.cliMissing && tries < 10) {
-        root.checkCli()
-      } else {
-        root.cliInstalling = false
-        tries = 0
-        stop()
-        // Still missing after the cap: the install ran but no shim appeared.
-        if (root.cliMissing) {
-          root.cliInstallError = "Shopify CLI installed but not found on PATH. Run `mise reshim` in a terminal, then Refresh."
-        }
-        root.writeState()
-      }
-    }
+  Discovery {
+    id: discovery
+    onResultChanged: internal.publish()
+    onSessionKnown: (session, startedAt) => account.noteSession(session, startedAt)
   }
 
-  // Managed login: the CLI blocks through the device flow and exits when done
-  // or the code expires, so its exit is the moment to re-probe the session.
-  Process {
-    id: loginProcess
-    command: ["shopify", "auth", "login", "--alias", "shop"]
-    onExited: function() {
-      root.checkLogin()
-    }
+  Consent {
+    id: consent
+    onPendingChanged: internal.publish()
   }
 
-  Process {
-    id: cliInstallProcess
-    command: []
-    stdout: StdioCollector { id: cliInstallStdout; waitForEnd: true }
-    stderr: StdioCollector { id: cliInstallStderr; waitForEnd: true }
-    onExited: function(exitCode) {
-      if (exitCode !== 0) {
-        var err = M.sanitize(cliInstallStderr.text)
-        root.cliInstallError = err !== "" ? err : "CLI install failed"
-        root.cliInstalling = false
-      } else {
-        root.cliInstallError = ""
-        // Keep cliInstalling true so the banner keeps showing "Installing…"
-        // (and hides the Install button) until the retry loop confirms the
-        // shopify shim has resolved — the timer clears cliInstalling then.
-        installRefreshTimer.tries = 0
-        installRefreshTimer.restart()
-      }
-      root.writeState()
-    }
+  SalesAccess {
+    id: salesAccess
+    onRevisionChanged: internal.publish()
+    onFinished: (domain, result) => internal.accessFinished(domain, result)
   }
 
-  // One `shopify store execute` process per discovered store, spawned all at
-  // once by handleAuthList (the store count is tiny, so no bounding is needed).
-  // Each onExited reports back through handleShopName and destroys itself — the
-  // same concurrent-Process idiom as salesFetchComponent.
-  Component {
-    id: shopNameComponent
-    Process {
-      id: self
-      property var svc: null
-      property string dm: ""
-
-      command: ["shopify", "store", "execute", "-j", "-s", dm, "-q", "{ shop { name } }"]
-      stdout: StdioCollector { id: out; waitForEnd: true }
-      stderr: StdioCollector { id: err; waitForEnd: true }
-
-      onExited: function(exitCode) {
-        if (!self.svc.discoveryTimedOut) {
-          self.svc.handleShopName(exitCode, out.text, self.dm)
-        }
-        self.destroy()
-      }
-    }
+  SalesScheduler {
+    id: scheduler
+    stores: configStore.stores
+    settings: configStore.settings
+    salesData: salesData
+    panelOpen: consent.panelOpen
+    // Not gated on the account session: store-auth sessions live in the
+    // CLI's own store config and survive `auth logout`, so sales keep
+    // working after sign-out. A store that does fail signed_out backs off.
+    enabled: internal.started && account.cli.status === "ready"
+    onPendingRevisionChanged: internal.publish()
+    onFetched: (domain, range, result, withTraffic) => internal.fetched(domain, range, result, withTraffic)
   }
 
-  // ------------------------------------------------------------- timers
-
-  Timer {
-    id: pollTimer
-    interval: root.refreshIntervalSec * 1000
-    repeat: true
-    running: true
-    triggeredOnStart: true
-    onTriggered: root.refreshLive()
+  Clipboard {
+    id: clipboard
   }
 
-  // Completed periods don't change during the day, so refresh them once an hour
-  // (Shopify's guidance: cache completed periods rather than re-querying).
-  Timer {
-    id: historicalPollTimer
-    interval: 3600000
-    repeat: true
-    running: true
-    triggeredOnStart: true
-    onTriggered: root.refreshHistorical()
+  OrderAlerts {
+    id: alerts
+    onHealthChanged: internal.publish()
+  }
+
+  ThemeInfo {
+    id: themeInfo
+    onRevisionChanged: internal.publish()
+  }
+
+  ThemeJobs {
+    id: themeJobs
+    onRevisionChanged: internal.publish()
+    onJobFinished: (domain, result) => internal.jobFinished(domain, result)
+  }
+
+  Previews {
+    id: previews
+    onRevisionChanged: internal.publish()
   }
 
   Timer {
-    id: refreshDebounce
-    interval: 600
+    id: publishTimer
+    interval: 250
     repeat: false
-    onTriggered: root.refresh()
+    onTriggered: internal.publishNow()
   }
 
-  // Force-kill a hung theme op (push/pull can be slow, hence the 120s window).
-  Timer {
-    id: themeWatchdog
-    interval: 120000
-    repeat: false
-    onTriggered: {
-      if (themeProcess.running) {
-        root.themeTimedOut = true
-        themeProcess.running = false
-      }
-    }
-  }
-
-  // Concurrent sales fetches have no per-fetch watchdog (Process has no
-  // default property for a child Timer), so one timer here sweeps the live and
-  // historical fetches and force-kills any that overrun 15s.
-  Timer {
-    id: salesWatchdog
-    interval: 5000
-    repeat: true
-    running: true
-    onTriggered: {
-      var now = Date.now()
-      for (var key in root.fetches) {
-        var f = root.fetches[key]
-        if (f && (now - f.startedAt) > 15000) {
-          f.timedOut = true
-          f.running = false
-        }
-      }
-    }
-  }
-
-  // Polls `theme dev` output to capture the preview URL. StdioCollector's
-  // dataChanged does not fire reliably in this Quickshell build, so this timer
-  // is the reliable path; it runs only while some store's dev server is live.
-  Timer {
-    id: devScanTimer
-    interval: 500
-    repeat: true
-    onTriggered: {
-      var any = false
-      for (var dm in root.devRunning) {
-        if (!root.devRunning[dm]) continue
-        any = true
-        var p = root.devProcesses[dm]
-        if (p && !root.devUrl[dm]) p.captureUrl()
-      }
-      devScanTimer.running = any
-    }
-  }
-
-  // Per-call watchdog for discovery. Phase 1 (auth list) is guarded per call;
-  // phase 2 (the concurrent `shop { name }` batch) is guarded as a whole with
-  // the window set in handleAuthList; the multi-org merge is guarded per call
-  // (restarted in handleLoginProbe). A stalled process is killed; the merge and
-  // the phase-2 batch settle through their own exit handlers.
-  Timer {
-    id: discoveryWatchdog
-    interval: 30000
-    repeat: false
-    onTriggered: {
-      if (authProcess.running) {
-        root.discoveryTimedOut = true
-        authProcess.running = false
-      } else if (loginProbeProcess.running) {
-        // Probe hung (should be fast with CI=1): settle to no rows.
-        root.discoveryTimedOut = true
-        loginProbeProcess.running = false
-      } else if (multiOrgStoresProcess.running) {
-        // Merge ran long: kill it; its onExited settles to no rows.
-        root.discoveryTimedOut = true
-        multiOrgStoresProcess.running = false
-      } else if (root.discovering) {
-        // Phase-2 batch guard: the subdomain names are already written, so
-        // settle to whatever we have rather than aborting to [].
-        root.discoveryTimedOut = true
-        root.finishDiscovery(root.discoveryFound)
-      }
-    }
-  }
-
-  Timer {
-    id: stateRetryTimer
-    interval: 500
-    repeat: false
-    onTriggered: root.writeState()
-  }
-
-  // ------------------------------------------------------------- IPC
-
+  // Scripts and keybindings: reads, refreshes, non-destructive actions,
+  // cancels and request* (which only open the panel's confirmation dialog).
   IpcHandler {
-    target: root.pluginId
+    target: "shop"
 
-    function ping(): string { return "ok" }
-    function refresh(): string { return root.refresh() }
-    function refreshStore(domain: string): string { return root.refreshStore(domain) }
-    function push(domain: string): string { return root.push(domain) }
-    function pull(domain: string): string { return root.pull(domain) }
-    function addStore(name: string, domain: string, themeDir: string): string { return root.addStore(name, domain, themeDir) }
-    function updateStore(domain: string, field: string, value: string): string { return root.updateStore(domain, field, value) }
-    function removeStore(domain: string): string { return root.removeStore(domain) }
-    function reorderStore(domain: string, newIndex: string): string { return root.reorderStore(domain, parseInt(newIndex, 10)) }
-    function setNotifyNewOrders(enabled: string): string { return root.setNotifyNewOrders(enabled) }
-    function authStore(domain: string): string { return root.authStore(domain) }
-    function discoverStores(): string { return root.discoverStores() }
-    function loginShopify(): string { return root.loginShopify() }
-    function installCli(): string { return root.installCli() }
-    function restoreBackup(domain: string, epoch: string): string { return root.restoreBackup(domain, epoch) }
-    function startDev(domain: string): string { return root.startDev(domain) }
-    function stopDev(domain: string): string { return root.stopDev(domain) }
+    function status(): string { return JSON.stringify(root.status()) }
+    function refresh(): string { return JSON.stringify(root.refresh()) }
+    function refreshStore(domain: string): string { return JSON.stringify(root.refreshStore(domain)) }
+    function requestAddStore(domain: string, label: string): string { return JSON.stringify(root.requestAddStore(domain, label)) }
+    function grantSalesAccess(domain: string): string { return JSON.stringify(root.grantSalesAccess(domain, "ipc")) }
+    function cancelSalesAccess(domain: string): string { return JSON.stringify(root.cancelSalesAccess(domain)) }
+    function discoverStores(): string { return JSON.stringify(root.discoverStores()) }
+    function signIn(): string { return JSON.stringify(root.signIn()) }
+    function cancelSignIn(): string { return JSON.stringify(root.cancelSignIn()) }
+    function cancelInstall(): string { return JSON.stringify(root.cancelInstall()) }
+    function cancelThemeJob(domain: string): string { return JSON.stringify(root.cancelThemeJob(domain)) }
+    function startPreview(domain: string): string { return JSON.stringify(root.startPreview(domain)) }
+    function stopPreview(domain: string): string { return JSON.stringify(root.stopPreview(domain)) }
+    function listThemes(domain: string): string { return JSON.stringify(root.listThemes(domain)) }
+    function listBackups(domain: string): string { return JSON.stringify(root.listBackups(domain)) }
+    function inspectFolder(domain: string): string { return JSON.stringify(root.inspectFolder(domain)) }
+    function dismissThemeResult(domain: string): string { return JSON.stringify(root.dismissThemeResult(domain)) }
+    function requestPush(domain: string): string { return JSON.stringify(root.requestPush(domain)) }
+    function requestPull(domain: string): string { return JSON.stringify(root.requestPull(domain)) }
+    function requestRestore(domain: string, backupId: string): string { return JSON.stringify(root.requestRestore(domain, backupId)) }
+    function requestInstallCli(): string { return JSON.stringify(root.requestInstallCli()) }
   }
 
-  Component.onCompleted: {
-    Quickshell.execDetached(["mkdir", "-p", configDir])
-    Quickshell.execDetached(["mkdir", "-p", stateDir])
-    // Probe at startup so a missing CLI surfaces the banner even with no stores.
-    checkCli()
-    // Probe the account session at startup so the Discover button starts right.
-    checkLogin()
-  }
+  Component.onCompleted: stateDir.prepare()
 }

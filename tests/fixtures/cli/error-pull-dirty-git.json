@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "This command must run from a theme directory when user input is unavailable.",
+    "tryMessage": "Run the command from a theme directory, or use --force to continue."
+  }
+}

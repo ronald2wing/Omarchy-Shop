@@ -1,0 +1,7 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "The store alpha.myshopify.com is currently unavailable.",
+    "tryMessage": "The store may be paused or frozen. Check its status in the Shopify admin and try again."
+  }
+}

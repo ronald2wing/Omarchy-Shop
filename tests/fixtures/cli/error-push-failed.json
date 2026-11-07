@@ -1,0 +1,15 @@
+{
+  "error": {
+    "type": "abort",
+    "message": "The theme 'Dawn' could not be pushed.",
+    "details": {
+      "themeId": "1",
+      "issues": [
+        {
+          "filePath": "/p/sections/a.liquid",
+          "message": "Liquid syntax error"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "data": {
+    "shop": {
+      "ianaTimezone": "America/New_York",
+      "currencyCode": "USD"
+    }
+  },
+  "extensions": {
+    "cost": {
+      "requestedQueryCost": 35,
+      "actualQueryCost": 30,
+      "throttleStatus": {
+        "maximumAvailable": 2000,
+        "currentlyAvailable": 1970,
+        "restoreRate": 100
+      }
+    }
+  }
+}

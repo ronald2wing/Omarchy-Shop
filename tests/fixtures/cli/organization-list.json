@@ -1,0 +1,28 @@
+{
+  "organizations": [
+    {
+      "id": "100",
+      "gid": "gid://organization/Organization/100",
+      "name": "Org A",
+      "status": "ACTIVE",
+      "shopCount": 2,
+      "url": "https://admin.shopify.com/?organization_id=100"
+    },
+    {
+      "id": "200",
+      "gid": "gid://organization/Organization/200",
+      "name": "Org B",
+      "status": "ACTIVE",
+      "shopCount": 1,
+      "url": "https://admin.shopify.com/?organization_id=200"
+    },
+    {
+      "id": "300",
+      "gid": "gid://organization/Organization/300",
+      "name": "Empty",
+      "status": "ACTIVE",
+      "shopCount": 0,
+      "url": "https://admin.shopify.com/?organization_id=300"
+    }
+  ]
+}
